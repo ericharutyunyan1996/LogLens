@@ -5,7 +5,8 @@
 # One-time setup (repo > Settings > Secrets and variables > Actions):
 #   WINDOWS_CERT_PFX_BASE64    base64 of a real code-signing .pfx   (PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx")))
 #   WINDOWS_CERT_PFX_PASSWORD  its password
-# The local self-signed certificate from tools/signing.ps1 is for local testing only - do not use it here.
+# Without these secrets the workflow still builds an UNSIGNED test installer (downloadable from the run page) and
+# publishes nothing. The local self-signed certificate from tools/signing.ps1 is for local testing only.
 name: release
 
 on:
@@ -43,13 +44,18 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install -e ".[ai,build]"
 
-      - name: Import code-signing certificate
+      - name: Import code-signing certificate (if configured)
+        id: cert
         shell: pwsh
         env:
           PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
         run: |
-          if (-not $env:PFX_BASE64) { throw 'WINDOWS_CERT_PFX_BASE64 secret is not set - refusing to publish an unsigned installer.' }
+          if (-not $env:PFX_BASE64) {
+            "signed=false" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+            Write-Host "::notice::No WINDOWS_CERT_PFX_BASE64 secret: building an UNSIGNED test installer; nothing will be published."
+            return
+          }
           $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
           $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My `
@@ -57,15 +63,29 @@ jobs:
           Remove-Item $pfx
           # tools/signing.ps1 looks the certificate up by subject
           "SIGN_SUBJECT=$($cert.Subject)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "signed=true" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
 
       - name: Build (PyInstaller + MSI + signature)
-        run: python tools/build.py --require-signature
+        shell: pwsh
+        run: |
+          if ('${{ steps.cert.outputs.signed }}' -eq 'true') { python tools/build.py --require-signature }
+          else { python tools/build.py --no-sign }
 
       - name: Verify the MSI signature
+        if: steps.cert.outputs.signed == 'true'
         shell: pwsh
         run: |
           $sig = Get-AuthenticodeSignature "dist/release/LogLens-$env:VERSION.msi"
           if ($sig.Status -ne 'Valid') { throw "MSI signature status: $($sig.Status)" }
+
+      # Test builds without a certificate: a downloadable artifact of the workflow run, never a release.
+      - name: Keep the unsigned test installer (7 days)
+        if: steps.cert.outputs.signed != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LogLens-unsigned-test-installer
+          path: dist/release/*.msi
+          retention-days: 7
 
       # Intermediate outputs: kept 7 days for debugging, not part of the release.
       - uses: actions/upload-artifact@v4
@@ -77,10 +97,12 @@ jobs:
           retention-days: 7
 
       - name: Publish release (signed MSI + docs only)
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && steps.cert.outputs.signed == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $files = Get-ChildItem dist/release -File | ForEach-Object FullName
-          gh release create $env:GITHUB_REF_NAME @files --title "LogLens $env:VERSION" --generate-notes
+          gh release view $env:GITHUB_REF_NAME 2>$null
+          if ($LASTEXITCODE -eq 0) { gh release upload $env:GITHUB_REF_NAME @files --clobber }
+          else { gh release create $env:GITHUB_REF_NAME @files --title "LogLens $env:VERSION" --generate-notes }
