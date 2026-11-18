@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSI package for LogLens (WiX Toolset 5, local dotnet tool: see dotnet-tools.json).
+  Built by tools\build.py, which also generates the file list (build\wix\files.wxs) from dist\LogLens and passes
+  -d Version=<x.y.z> -d SourceDir=<dist\LogLens> -d IconPath=<build\loglens.ico>.
+  Per-machine install to Program Files (admin) with a "choose install folder" dialog (WixUI_InstallDir, needs the
+  WixToolset.UI.wixext extension), Start menu shortcut, "Open with LogLens" for any file and in the "Open with" list
+  of .log / .txt / .evtx. Signed by tools/build.py (tools\signing.ps1). Silent install: msiexec /i LogLens.msi /qn
+  [INSTALLFOLDER="D:\Apps\LogLens"]
+
+  Upgrades: UpgradeCode below is FIXED FOREVER (never change it, or old versions are no longer found and installs
+  side by side). The ProductCode is regenerated per build (Package Id="*"), the Version comes from loglens.__version__
+  (x.y.z, MSI ignores the 4th field). MajorUpgrade removes the old version first, so files that no longer exist in the
+  new build are not orphaned. The chosen install folder is remembered in HKLM\Software\LogLens and reused on upgrade.
+  Per-user data (%APPDATA%\LogLens, %LOCALAPPDATA%\LogLens) is intentionally left alone on uninstall/upgrade.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="LogLens"
+           Manufacturer="LogLens"
+           Version="$(var.Version)"
+           UpgradeCode="{3C4A0F52-8A4E-4F0B-9D37-5E1B2C7A9D41}"
+           Scope="perMachine"
+           Compressed="yes"
+           Language="1033">
+    <SummaryInformation Description="LogLens log viewer and analyzer" />
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of LogLens is already installed. Uninstall it first to install an older one." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="LogLensIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="LogLensIcon" />
+
+    <!-- Keep a custom install folder across upgrades: the previous value (if any) becomes the dialog's default -->
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="PreviousInstallFolder" Root="HKLM" Key="Software\LogLens" Name="InstallFolder"
+                      Type="directory" Bitness="always64" />
+    </Property>
+
+    <!-- Folder selection dialog (WixUI_InstallDir without the license page) -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <!-- No license page: Welcome goes straight to the folder dialog and back -->
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="10" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="10" />
+    </UI>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="LogLens" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="LogLens" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="OpenWith" />
+    </Feature>
+
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Shortcut Id="LogLensShortcut" Name="LogLens" Description="Log viewer and analyzer"
+                Target="[INSTALLFOLDER]bin\LogLens.exe" WorkingDirectory="BINFOLDER" Icon="LogLensIcon" />
+      <!-- A shortcut's key path must be per-user (ICE38/43/57); the value only marks the shortcut as installed -->
+      <RegistryValue Root="HKCU" Key="Software\LogLens" Name="StartMenuShortcut" Type="integer" Value="1"
+                     KeyPath="yes" />
+    </Component>
+
+    <Component Id="OpenWith" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKLM" Key="Software\LogLens" Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]"
+                     KeyPath="yes" />
+      <!-- ProgIDs -->
+      <RegistryValue Root="HKLM" Key="Software\Classes\LogLens.LogFile" Type="string" Value="Log file" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\LogLens.LogFile\DefaultIcon" Type="string"
+                     Value="[INSTALLFOLDER]bin\LogLens.exe,0" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\LogLens.LogFile\shell\open\command" Type="string"
+                     Value="&quot;[INSTALLFOLDER]bin\LogLens.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\LogLens.EventLogFile" Type="string" Value="Windows event log" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\LogLens.EventLogFile\DefaultIcon" Type="string"
+                     Value="[INSTALLFOLDER]bin\LogLens.exe,0" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\LogLens.EventLogFile\shell\open\command" Type="string"
+                     Value="&quot;[INSTALLFOLDER]bin\LogLens.exe&quot; &quot;%1&quot;" />
+      <!-- Offer LogLens in "Open with" (does not change the user's default apps) -->
+      <RegistryValue Root="HKLM" Key="Software\Classes\.log\OpenWithProgids" Name="LogLens.LogFile" Type="string"
+                     Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.txt\OpenWithProgids" Name="LogLens.LogFile" Type="string"
+                     Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.evtx\OpenWithProgids" Name="LogLens.EventLogFile"
+                     Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\Applications\LogLens.exe\shell\open\command" Type="string"
+                     Value="&quot;[INSTALLFOLDER]bin\LogLens.exe&quot; &quot;%1&quot;" />
+      <!-- "Open with LogLens" in the right-click menu of any file -->
+      <RegistryValue Root="HKLM" Key="Software\Classes\*\shell\LogLens" Type="string" Value="Open with LogLens" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\*\shell\LogLens" Name="Icon" Type="string"
+                     Value="[INSTALLFOLDER]bin\LogLens.exe,0" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\*\shell\LogLens\command" Type="string"
+                     Value="&quot;[INSTALLFOLDER]bin\LogLens.exe&quot; &quot;%1&quot;" />
+    </Component>
+  </Package>
+</Wix>

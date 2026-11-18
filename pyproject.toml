@@ -1,0 +1,108 @@
+[project]
+name = "loglens"
+version = "0.1.0"
+description = "Fast log viewer & analyzer for Windows: huge files, live tail, payload decoding, Event Log correlation"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.8",
+    "numpy>=2.0",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+ai = ["anthropic[vertex,bedrock]>=2.8"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11", "pre-commit>=3.8", "types-pywin32"]
+build = ["pyinstaller>=6.11"]
+
+[project.scripts]
+loglens = "loglens.app:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["loglens*"]
+
+[tool.setuptools.package-data]
+"loglens.core.kb" = ["*.toml"]
+
+# ---- tests ------------------------------------------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--import-mode=importlib"
+
+[tool.coverage.run]
+source = ["loglens"]
+branch = true
+
+# ---- lint / format ----------------------------------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["samples"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "RET",      # return statements
+    "PTH",      # prefer pathlib
+    "PIE", "PERF", "RUF",
+    "BLE",      # no blind except without a reason
+    "T20",      # no print() in the package (tools/ and tests/ are exempt)
+    "PL",       # pylint subset
+]
+ignore = [
+    "PLR2004",  # magic numbers: thresholds are named where they matter, small literals are clearer inline
+    "PLR0913",  # Qt constructors legitimately take many parameters
+    "RUF001", "RUF002", "RUF003",  # we intentionally use typographic characters (…, —, ·) in UI text
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Deferred imports on purpose: search worker processes import the app's main module, so Qt must not load at import
+# time there; freeze_support() and logging must also run before the heavy imports.
+"loglens/app.py" = ["PLC0415"]
+"loglens/ui/*.py" = ["N802", "N815"]   # Qt overrides (paintEvent) and signal names (currentRowChanged) are camelCase
+"loglens/services/*.py" = ["N815"]     # Qt signal names
+"tests/**/*.py" = ["PLR0915", "T20", "PLC0415"]
+"tools/*.py" = ["T20", "PLC0415", "E402"]
+
+[tool.ruff.lint.pylint]
+max-branches = 16
+max-statements = 60
+
+[tool.ruff.lint.isort]
+known-first-party = ["loglens", "tests"]
+
+# ---- types ------------------------------------------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+packages = ["loglens"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["win32api", "win32con", "win32file", "win32process", "pywintypes"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# CPython regex internals (re._parser / re._constants) ship without stubs; used read-only for prefilter analysis.
+module = ["re._constants", "re._parser"]
+ignore_missing_imports = true

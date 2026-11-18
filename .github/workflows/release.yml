@@ -1,0 +1,86 @@
+# Release pipeline: pushing a tag like v0.2.0 builds LogLens, signs the MSI and publishes a GitHub release that
+# contains ONLY the signed installer + README/LICENSE. Everything intermediate (PyInstaller folder, portable zip,
+# build logs) stays in the workflow run as a short-lived artifact and never appears on the release page.
+#
+# One-time setup (repo > Settings > Secrets and variables > Actions):
+#   WINDOWS_CERT_PFX_BASE64    base64 of a real code-signing .pfx   (PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx")))
+#   WINDOWS_CERT_PFX_PASSWORD  its password
+# The local self-signed certificate from tools/signing.ps1 is for local testing only - do not use it here.
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Check the tag matches loglens.__version__
+        shell: pwsh
+        run: |
+          $ver = (python -c "from loglens import __version__ as v; print(v)").Trim()
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$ver") {
+            throw "Tag $env:GITHUB_REF_NAME does not match version $ver"
+          }
+          "VERSION=$ver" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Install build dependencies
+        run: python -m pip install -e ".[ai,build]"
+
+      - name: Import code-signing certificate
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
+        run: |
+          if (-not $env:PFX_BASE64) { throw 'WINDOWS_CERT_PFX_BASE64 secret is not set - refusing to publish an unsigned installer.' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My `
+            -Password (ConvertTo-SecureString $env:PFX_PASSWORD -AsPlainText -Force)
+          Remove-Item $pfx
+          # tools/signing.ps1 looks the certificate up by subject
+          "SIGN_SUBJECT=$($cert.Subject)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Build (PyInstaller + MSI + signature)
+        run: python tools/build.py --require-signature
+
+      - name: Verify the MSI signature
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature "dist/release/LogLens-$env:VERSION.msi"
+          if ($sig.Status -ne 'Valid') { throw "MSI signature status: $($sig.Status)" }
+
+      # Intermediate outputs: kept 7 days for debugging, not part of the release.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-intermediates
+          path: |
+            dist/LogLens-*-portable.zip
+            build/*.log
+          retention-days: 7
+
+      - name: Publish release (signed MSI + docs only)
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem dist/release -File | ForEach-Object FullName
+          gh release create $env:GITHUB_REF_NAME @files --title "LogLens $env:VERSION" --generate-notes
