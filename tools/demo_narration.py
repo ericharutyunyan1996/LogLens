@@ -99,6 +99,11 @@ NARRATION: dict[str, str] = {
     "About LogLens": "And finally, the about box. That's everything.",
     "AI: save the answer to your knowledge base": "Happy with the answer? Save it to your knowledge base, "
     "and next time it shows up offline, instantly.",
+    "AI wait: line": "While the model works, here is the important part: it is running right here on this laptop, "
+    "on the graphics card. Your log never left the computer, and there is no account and no cloud involved. "
+    "A few more seconds...",
+    "AI wait: patterns": "This one is bigger, because it reads the top patterns of the whole log at once, "
+    "so the model needs a little longer. Thinking...",
     OUTRO: "And that is LogLens! Read, filter, understand and explain any log, privately on your own machine. "
     "Thanks for watching!",
 }

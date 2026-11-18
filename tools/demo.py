@@ -25,10 +25,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 SAMPLES = ROOT / "samples" / "generated"
 _REAL_APPDATA = os.environ.get("APPDATA", "")
+# Temp files live under a neutral folder, so no Windows user name ever appears on screen (paths in tab headers).
+DEMO_TMP = Path(os.environ.get("LOGLENS_DEMO_TMP", r"C:\LogLensDemo"))
+DEMO_TMP.mkdir(parents=True, exist_ok=True)
+tempfile.tempdir = str(DEMO_TMP)
 os.environ["APPDATA"] = tempfile.mkdtemp(prefix="loglens-demo-")
 os.environ["LOCALAPPDATA"] = os.environ["APPDATA"]
 
 from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QInputDialog, QFileDialog, QLabel, QPushButton, QWidget
 
 from loglens.core.ai.config import AIConfig, Provider
@@ -83,6 +88,27 @@ def mix_voice(video: Path, cues: list[tuple[str, float]], clips: dict[str, float
     print("narrated video:", target)
 
 
+# step title -> (what to capture, file name): "main" = the main window, otherwise a window class name
+SHOTS: dict[str, tuple[str, str]] = {
+    "Welcome page with recent files": ("main", "welcome"),
+    "Switch theme: dark": ("main", "welcome-dark"),
+    "Open a log: format detected, levels and timeline strip": ("main", "open-log"),
+    "Search for 'payment' (live highlight of matches)": ("main", "search"),
+    "Filter by level: warnings and errors only": ("main", "filter-levels"),
+    "Pin filters as chips: must match / must not match": ("main", "filter-chips"),
+    "Columns view: parsed fields as a table": ("main", "columns-view"),
+    "Open a JSON-lines log: Inspector decodes the payload": ("main", "json-inspector"),
+    "Analyze: message patterns": ("AnalysisWindow", "analyze-patterns"),
+    "Analyze: field value counts": ("AnalysisWindow", "analyze-fields"),
+    "Analyze: SQL over parsed records": ("AnalysisWindow", "analyze-sql"),
+    "Analyze: request / response pairs": ("AnalysisWindow", "analyze-transactions"),
+    "Analyze: HTTP request statistics (IIS log)": ("AnalysisWindow", "analyze-http"),
+    "Merge open logs into one timeline": ("main", "merged-timeline"),
+    "Windows events around the selected line": ("main", "windows-events"),
+    "AI: answer shown in the Inspector": ("main", "ai-answer"),
+}
+
+
 class Demo:
     def __init__(self, app: QApplication, win: MainWindow, fast: bool) -> None:
         self.app, self.win, self.fast = app, win, fast
@@ -91,6 +117,7 @@ class Demo:
         self.cues: list[tuple[str, float]] = []  # (key, seconds since the recording started)
         self.t0 = time.monotonic()
         self.dwell = 0.0  # extra seconds on every screen
+        self.shots: Path | None = None  # folder for README screenshots (--shots)
         self.gap = 0.0  # pause after the narration of each step
         self.errors: list[str] = []
         sys.excepthook = lambda et, ev, tb: (self.errors.append("".join(traceback.format_exception(et, ev, tb))),
@@ -113,6 +140,24 @@ class Demo:
             time.sleep(0.01)
         return until is None
 
+    def type_into(self, edit: QWidget, text: str, enter: bool = True) -> None:
+        """Type like a person (one key at a time, visible on screen) and press Enter."""
+        edit.setFocus()
+        edit.clear()
+        for ch in text:
+            QTest.keyClick(edit, ch)
+            self.pump(0.07)
+        if enter:
+            self.pump(0.3)
+            QTest.keyClick(edit, Qt.Key.Key_Return)
+
+    def shot(self, name: str, widget: QWidget | None = None) -> None:
+        """Save a PNG of the window (or another widget) for the README; only with --shots."""
+        if self.shots is None:
+            return
+        self.pump(0.4)
+        (widget or self.win).grab().save(str(self.shots / f"{name}.png"))
+
     def say(self, text: str) -> None:
         self.caption.setText(text)
         self.caption.adjustSize()
@@ -120,7 +165,7 @@ class Demo:
         self.caption.move(max((w - self.caption.width()) // 2, 8), self.win.height() - self.caption.height() - 46)
         self.caption.raise_()
         self.caption.show()
-        self.pump(1.0)
+        self.pump(0.5)
 
     def speak(self, key: str) -> float:
         """Cue the narration of ``key`` now (mixed into the video afterwards); returns how long it lasts."""
@@ -138,6 +183,10 @@ class Demo:
             self.pump(hold + self.dwell)  # time to look at the result
             self.pump(max(speech + 0.4 - (time.monotonic() - started), 0.0))  # let the voice finish
             self.pump(self.gap)  # a breath between features
+            if self.shots is not None and title in SHOTS:
+                kind, name = SHOTS[title]
+                target = next((w for w in self.app.topLevelWidgets() if type(w).__name__ == kind and w.isVisible()), None) if kind != "main" else None
+                self.shot(name, target)
             if len(self.errors) > before:
                 raise RuntimeError("unhandled exception in the app: " + self.errors[-1].strip().splitlines()[-1])
             left = self.app.activeModalWidget()
@@ -240,9 +289,8 @@ def run(d: Demo, with_ai: bool) -> None:
 
     def search() -> None:
         tab = d.tab()
-        tab.filter_panel.edit.setFocus()
-        tab.filter_panel.edit.setText("payment")
-        d.pump(until=lambda: len(tab.document.hits) > 0)
+        d.type_into(tab.filter_panel.edit, "payment")
+        assert d.pump(until=lambda: len(tab.document.hits) > 0, timeout=15), "search found nothing"
 
     S("Search for 'payment' (live highlight of matches)", search, 2.0)
     S("Jump to next match", lambda: win.act_next.trigger(), 1.0)
@@ -253,8 +301,7 @@ def run(d: Demo, with_ai: bool) -> None:
         panel = d.tab().filter_panel
         panel.edit.setText("")
         panel.select_levels({"Warning", "Error"})
-        d.pump(until=lambda: len(d.tab().document.hits) > 0)
-        assert len(d.tab().document.hits) > 0
+        assert d.pump(until=lambda: len(d.tab().document.hits) > 0, timeout=15), 'no level matches'
 
     S("Filter by level: warnings and errors only", levels, 2.0)
     S("Next issue (error/warning navigation)", lambda: win.act_next_issue.trigger(), 1.0)
@@ -263,13 +310,14 @@ def run(d: Demo, with_ai: bool) -> None:
     def pin() -> None:
         panel = d.tab().filter_panel
         panel.select_levels(set())
-        panel.edit.setText("CacheManager")
-        d.pump(1.2)
+        d.type_into(panel.edit, "CacheManager", enter=False)
+        d.pump(1.0)
         panel.pin_current(FilterMode.ALL)  # becomes a chip: line MUST match
         d.pump(1.2)
-        panel.edit.setText("miss")
+        d.type_into(panel.edit, "miss", enter=False)
+        d.pump(0.8)
         panel.pin_current(FilterMode.NONE)  # a second chip: line must NOT match
-        d.pump(until=lambda: len(d.tab().document.hits) > 0)
+        assert d.pump(until=lambda: len(d.tab().document.hits) > 0, timeout=15), 'pinned filters matched nothing'
         assert len(panel._pinned) == 2
 
     S("Pin filters as chips: must match / must not match", pin, 2.5)
@@ -367,6 +415,7 @@ def run(d: Demo, with_ai: bool) -> None:
         tog(win.act_mask, True)
         d.pump(4.0)  # ...and now they are masked
         assert tab._mask_secrets, "secrets masking did not turn on"
+        d.shot("mask-secrets")
         tog(win.act_mask, False)
         d.pump(1.5)
 
@@ -452,7 +501,7 @@ def run(d: Demo, with_ai: bool) -> None:
     def export_lines() -> None:
         tab = d.tab()
         tab.filter_panel.select_levels({"Warning", "Error"})
-        d.pump(until=lambda: len(tab.document.hits) > 0)
+        assert d.pump(until=lambda: len(tab.document.hits) > 0, timeout=15), "no warnings/errors to export"
         pick["save"] = str(out_dir / "filtered.csv")
         win.act_export.trigger()
         d.pump(until=lambda: Path(pick["save"]).exists() and tab._exporter is None, timeout=30)
@@ -693,8 +742,8 @@ def run(d: Demo, with_ai: bool) -> None:
 
     def explain() -> None:
         tab = d.tab()
-        tab.filter_panel.edit.setText("ERROR")
-        d.pump(until=lambda: len(tab.document.hits) > 0)
+        d.type_into(tab.filter_panel.edit, "ERROR")
+        assert d.pump(until=lambda: len(tab.document.hits) > 0, timeout=15), "no ERROR lines found"
         tab.next_marked(None, True)
         d.pump(1.0)
 
@@ -703,6 +752,7 @@ def run(d: Demo, with_ai: bool) -> None:
 
         QTimer.singleShot(0, lambda: None)
         d.modal(lambda: win.act_explain.trigger(), send, hold=1.0, accept=True)
+        d.speak('AI wait: line')
         d.pump(until=lambda: not win.ai.service.busy, timeout=300)
         inspector = tab.inspector
         assert inspector._explanation is not None and not inspector.ai_status.text().startswith("⚠"),             f"no answer: {inspector.ai_status.text()!r}"
@@ -722,6 +772,7 @@ def run(d: Demo, with_ai: bool) -> None:
         d.pump(0.3)
         d.pump(until=lambda: bool(window.pages['patterns']._patterns), timeout=120)
         d.modal(button.click, lambda w: d.pump(2.5), hold=1.0, accept=True)
+        d.speak('AI wait: patterns')
         d.pump(until=lambda: not win.ai.service.busy, timeout=300)
         assert tab.inspector._explanation is not None, f"no answer: {tab.inspector.ai_status.text()!r}"
         d.close_windows("AnalysisWindow")
@@ -745,6 +796,8 @@ def main() -> int:
     parser.add_argument("--record", help="write an mp4 of the screen area of the window")
     parser.add_argument("--fast", action="store_true", help="shorter pauses (test run)")
     parser.add_argument("--no-ai", action="store_true")
+    parser.add_argument("--speed", type=float, default=1.0, help="play the finished narrated video this much faster")
+    parser.add_argument("--shots", help="folder to save README screenshots into")
     parser.add_argument("--no-voice", action="store_true", help="record without narration")
     args = parser.parse_args()
 
@@ -756,12 +809,17 @@ def main() -> int:
     apply_theme(app, "light")
     win = MainWindow(settings)
     win.refresh_theme()
+    if args.record:
+        win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)  # nothing else on screen may cover the capture
     win.resize(1500, 900)
     win.move(40, 40)
     win.show()
     d = Demo(app, win, args.fast)
+    if args.shots:
+        d.shots = Path(args.shots)
+        d.shots.mkdir(parents=True, exist_ok=True)
     if args.record:  # a relaxed pace: one feature at a time, with time to read the screen
-        d.dwell, d.gap = 0.6, 0.7
+        d.dwell, d.gap = 0.2, 0.3
     if args.record and not args.no_voice:
         d.clips = make_voice(NARRATION)
     d.pump(1.5)
@@ -778,6 +836,11 @@ def main() -> int:
              "-pix_fmt", "yuv420p", args.record],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )  # fmt: skip
+        out = Path(args.record)
+        for _ in range(100):  # ffmpeg needs a moment before the first frame; the voice must start with the video
+            if out.exists() and out.stat().st_size > 0:
+                break
+            time.sleep(0.1)
         d.t0 = time.monotonic()
         d.pump(1.0)
     try:
@@ -793,6 +856,16 @@ def main() -> int:
             recorder.wait(timeout=60)
             if d.clips:
                 mix_voice(Path(args.record), d.cues, d.clips)
+                if args.speed != 1.0:
+                    narrated = Path(args.record).with_name(Path(args.record).stem + "-voice.mp4")
+                    quick = narrated.with_name(narrated.stem + "-quick.mp4")
+                    s = args.speed
+                    subprocess.run(["ffmpeg", "-y", "-i", str(narrated), "-filter_complex",
+                                    f"[0:v]setpts=PTS/{s}[v];[0:a]atempo={s}[a]", "-map", "[v]", "-map", "[a]",
+                                    "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-pix_fmt", "yuv420p",
+                                    "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(quick)],
+                                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # fmt: skip
+                    quick.replace(narrated)
         win.close()
         shutdown_pool()
     report = ROOT / "build" / "demo_report.json"

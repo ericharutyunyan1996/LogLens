@@ -21,14 +21,14 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
 
@@ -42,7 +42,7 @@ jobs:
           "VERSION=$ver" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Install build dependencies
-        run: python -m pip install -e ".[ai,build]"
+        run: python -m pip install ".[ai,build]"
 
       - name: Import code-signing certificate (if configured)
         id: cert
@@ -81,14 +81,14 @@ jobs:
       # Test builds without a certificate: a downloadable artifact of the workflow run, never a release.
       - name: Keep the unsigned test installer (7 days)
         if: steps.cert.outputs.signed != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: LogLens-unsigned-test-installer
           path: dist/release/*.msi
           retention-days: 7
 
       # Intermediate outputs: kept 7 days for debugging, not part of the release.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: build-intermediates
           path: |
