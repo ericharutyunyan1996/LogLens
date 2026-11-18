@@ -15,7 +15,7 @@ an offline knowledge base that explains errors, and an optional AI assistant tha
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?style=flat-square)
 
 [**Download the installer**](https://github.com/ericharutyunyan1996/LogLens/releases/latest) ·
-[**Watch the 9-minute tour**](https://github.com/ericharutyunyan1996/LogLens/releases/download/demo/LogLens-demo-voice.mp4)
+[**Watch the 7-minute tour**](https://github.com/ericharutyunyan1996/LogLens/releases/download/demo/LogLens-demo-voice.mp4)
 
 <br>
 

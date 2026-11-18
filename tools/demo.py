@@ -155,8 +155,10 @@ class Demo:
         """Save a PNG of the window (or another widget) for the README; only with --shots."""
         if self.shots is None:
             return
+        self.caption.hide()  # captions belong in the video, not in README screenshots
         self.pump(0.4)
         (widget or self.win).grab().save(str(self.shots / f"{name}.png"))
+        self.caption.show()
 
     def say(self, text: str) -> None:
         self.caption.setText(text)
