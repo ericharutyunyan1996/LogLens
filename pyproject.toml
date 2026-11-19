@@ -77,6 +77,10 @@ ignore = [
 "loglens/services/*.py" = ["N815"]     # Qt signal names
 "tests/**/*.py" = ["PLR0915", "T20", "PLC0415"]
 "tools/*.py" = ["T20", "PLC0415", "E402"]
+# The demo is one long linear walkthrough of the app (a step per feature) with narration text; long lines and a long
+# run() are the point there.
+"tools/demo.py" = ["E501", "PLR0915", "PLR0912", "N806", "PLW0108", "PLC0415", "SLF001", "BLE001"]
+"tools/demo_narration.py" = ["E501"]
 
 [tool.ruff.lint.pylint]
 max-branches = 16

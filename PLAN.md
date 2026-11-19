@@ -6,7 +6,10 @@
 > This file is the working plan: phases have checklists, tick them as we go.
 
 **Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
-`[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests and the quality gate is green.
+`[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff and mypy are clean.
+**Known issue:** a full `pytest` run sometimes aborts with a Qt crash in `tests/services/test_tail_coordination.py`
+(also on the first published commit); every test passes when run on its own, so it is an ordering/teardown problem to
+track down, not a failing assertion.
 
 **Contents**
 1. [Vision](#1-vision) — who it is for and the problems it solves
@@ -456,6 +459,8 @@ WER crash-dump folder viewer · plugin formats.
 ---
 
 ## 5. Testing strategy
+- **Known flake:** the full suite occasionally aborts (Qt) in `test_tail_coordination`; run files individually when
+  bisecting, and fix the cause before relying on the whole-suite result.
 - **Unit tests** for everything UI-free; parity tests for every speed trick (parallel vs single, prefilter vs full regex).
 - **Headless UI smoke test** drives the real window (open → index → marks → search → navigate → wrap → details → tail).
 - **Benchmarks**: `tools/bench.py` (core), `tools/ui_bench.py` (UI timings + longest UI stall) on a 1 GB generated log.

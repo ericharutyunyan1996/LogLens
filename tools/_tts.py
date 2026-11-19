@@ -1,6 +1,6 @@
 """Batch text-to-speech helper for tools/demo.py (runs inside the Piper venv: ~/.loglens-demo/tts-venv).
 
-    python _tts.py voice.onnx texts.json outdir      # texts.json: {"name": "spoken text", ...} -> outdir/name.wav
+python _tts.py voice.onnx texts.json outdir      # texts.json: {"name": "spoken text", ...} -> outdir/name.wav
 """
 
 import json

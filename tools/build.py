@@ -195,7 +195,7 @@ def make_msi(folder: Path, ver: str) -> Path | None:
     if dotnet is None:
         log.warning("dotnet not found — skipping the MSI (install the .NET SDK)")
         return None
-    # Install layout: <install>\bin (exe + runtime); nothing else is installed. The portable zip keeps the flat PyInstaller folder.
+    # Install layout: bin/ (exe + runtime); nothing else is installed. The portable zip stays flat.
     stage = BUILD / "wix" / "stage"
     shutil.rmtree(stage, ignore_errors=True)
     shutil.copytree(folder, stage / "bin")

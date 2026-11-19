@@ -34,7 +34,7 @@ os.environ["LOCALAPPDATA"] = os.environ["APPDATA"]
 
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QInputDialog, QFileDialog, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QLabel, QPushButton, QWidget
 
 from loglens.core.ai.config import AIConfig, Provider
 from loglens.core.filters import FilterMode
@@ -187,7 +187,11 @@ class Demo:
             self.pump(self.gap)  # a breath between features
             if self.shots is not None and title in SHOTS:
                 kind, name = SHOTS[title]
-                target = next((w for w in self.app.topLevelWidgets() if type(w).__name__ == kind and w.isVisible()), None) if kind != "main" else None
+                target = (
+                    next((w for w in self.app.topLevelWidgets() if type(w).__name__ == kind and w.isVisible()), None)
+                    if kind != "main"
+                    else None
+                )
                 self.shot(name, target)
             if len(self.errors) > before:
                 raise RuntimeError("unhandled exception in the app: " + self.errors[-1].strip().splitlines()[-1])
@@ -198,7 +202,7 @@ class Demo:
                 raise RuntimeError(f"a dialog was left open: {name}")
             self.results.append({"step": title, "ok": True, "seconds": round(time.monotonic() - started, 1)})
             print(f"  ok   {title}", flush=True)
-        except Exception as exc:  # noqa: BLE001 - a demo step must never stop the run
+        except Exception as exc:
             self.results.append({"step": title, "ok": False, "error": repr(exc), "trace": traceback.format_exc()})
             print(f"  FAIL {title}: {exc!r}", flush=True)
             self.close_modals()
@@ -228,7 +232,7 @@ class Demo:
                 if wait:
                     wait(w)
                 self.pump(hold)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 problems.append(repr(exc))
             finally:
                 (w.accept if accept and isinstance(w, QDialog) else w.reject if isinstance(w, QDialog) else w.close)()
@@ -283,8 +287,16 @@ def run(d: Demo, with_ai: bool) -> None:
 
     # ---- 1. start screen, themes --------------------------------------------------------------------------------
     S("Welcome page with recent files", lambda: d.pump(1.0))
-    S("Switch theme: dark", lambda: win._set_theme(next(a for a in win.theme_group.actions() if a.data() == "dark")), 1.2)
-    S("Switch theme: light", lambda: win._set_theme(next(a for a in win.theme_group.actions() if a.data() == "light")), 1.2)
+    S(
+        "Switch theme: dark",
+        lambda: win._set_theme(next(a for a in win.theme_group.actions() if a.data() == "dark")),
+        1.2,
+    )
+    S(
+        "Switch theme: light",
+        lambda: win._set_theme(next(a for a in win.theme_group.actions() if a.data() == "light")),
+        1.2,
+    )
 
     # ---- 2. open + format detection ------------------------------------------------------------------------------
     S("Open a log: format detected, levels and timeline strip", lambda: d.open("app_small.log"), 2.0)
@@ -303,7 +315,7 @@ def run(d: Demo, with_ai: bool) -> None:
         panel = d.tab().filter_panel
         panel.edit.setText("")
         panel.select_levels({"Warning", "Error"})
-        assert d.pump(until=lambda: len(d.tab().document.hits) > 0, timeout=15), 'no level matches'
+        assert d.pump(until=lambda: len(d.tab().document.hits) > 0, timeout=15), "no level matches"
 
     S("Filter by level: warnings and errors only", levels, 2.0)
     S("Next issue (error/warning navigation)", lambda: win.act_next_issue.trigger(), 1.0)
@@ -319,7 +331,7 @@ def run(d: Demo, with_ai: bool) -> None:
         d.type_into(panel.edit, "miss", enter=False)
         d.pump(0.8)
         panel.pin_current(FilterMode.NONE)  # a second chip: line must NOT match
-        assert d.pump(until=lambda: len(d.tab().document.hits) > 0, timeout=15), 'pinned filters matched nothing'
+        assert d.pump(until=lambda: len(d.tab().document.hits) > 0, timeout=15), "pinned filters matched nothing"
         assert len(panel._pinned) == 2
 
     S("Pin filters as chips: must match / must not match", pin, 2.5)
@@ -393,11 +405,23 @@ def run(d: Demo, with_ai: bool) -> None:
     # ---- 4. view options -----------------------------------------------------------------------------------------
     S("Word wrap on", lambda: tog(win.act_wrap, True), 1.0)
     S("Word wrap off", lambda: tog(win.act_wrap, False), 0.6)
-    S("Hide / show the Inspector", lambda: (tog(win.act_inspector, False), d.pump(0.8), tog(win.act_inspector, True)), 1.0)
-    S("Hide / show the timeline strip", lambda: (tog(win.act_timeline, False), d.pump(0.8), tog(win.act_timeline, True)), 1.0)
+    S(
+        "Hide / show the Inspector",
+        lambda: (tog(win.act_inspector, False), d.pump(0.8), tog(win.act_inspector, True)),
+        1.0,
+    )
+    S(
+        "Hide / show the timeline strip",
+        lambda: (tog(win.act_timeline, False), d.pump(0.8), tog(win.act_timeline, True)),
+        1.0,
+    )
     S("Columns view: parsed fields as a table", lambda: tog(win.act_columns, True), 2.0)
     S("Back to plain text view", lambda: tog(win.act_columns, False), 0.8)
-    S("Zoom in / out", lambda: (win.act_zoom_in.trigger(), win.act_zoom_in.trigger(), d.pump(0.8), win.act_zoom_reset.trigger()), 1.0)
+    S(
+        "Zoom in / out",
+        lambda: (win.act_zoom_in.trigger(), win.act_zoom_in.trigger(), d.pump(0.8), win.act_zoom_reset.trigger()),
+        1.0,
+    )
 
     def secrets() -> None:
         path = Path(tempfile.mkdtemp(prefix="loglens-secrets-")) / "secrets-demo.log"
@@ -407,7 +431,7 @@ def run(d: Demo, with_ai: bool) -> None:
             "2026-11-18 09:00:03 DEBUG Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZW1vIn0.c2lnbmF0dXJlMTIzNDU2\n"
             "2026-11-18 09:00:04 INFO  using key AKIAIOSFODNN7EXAMPLE for the backup bucket\n"
             "2026-11-18 09:00:05 INFO  jdbc:sqlserver://db01;user=sa;password=Hunter2Hunter2\n"
-            "2026-11-18 09:00:06 INFO  api_key=\"abcd1234efgh5678ijkl9012mnop3456\"\n",
+            '2026-11-18 09:00:06 INFO  api_key="abcd1234efgh5678ijkl9012mnop3456"\n',
             encoding="utf-8",
         )
         win.open_file(str(path))
@@ -423,7 +447,11 @@ def run(d: Demo, with_ai: bool) -> None:
 
     S("Mask secrets toggle", secrets, 1.0)
     d.open("app_small.log")
-    S("Encoding menu: reopen as another encoding", lambda: win._set_encoding(next(a for a in win.encoding_group.actions() if a.data() == "utf-8")), 1.2)
+    S(
+        "Encoding menu: reopen as another encoding",
+        lambda: win._set_encoding(next(a for a in win.encoding_group.actions() if a.data() == "utf-8")),
+        1.2,
+    )
 
     def highlighters() -> None:
         def add_rule(w: QWidget) -> None:
@@ -551,6 +579,7 @@ def run(d: Demo, with_ai: bool) -> None:
 
     # ---- 8. tabs, merge, bundles, find all, dashboard ------------------------------------------------------------
     S("Switch between open tabs", lambda: (win.act_next_tab.trigger(), d.pump(0.8), win.act_prev_tab.trigger()), 1.0)
+
     def merge() -> None:
         d.open("app_utf16.log")
         before = win.tabs.count()
@@ -595,6 +624,7 @@ def run(d: Demo, with_ai: bool) -> None:
         assert win.tabs.count() > before, "bundle opened nothing"
 
     S("Open a folder of logs (support bundle)", bundle, 1.5)
+
     def find_all() -> None:
         win.find_in_all()
         dlg = d.window_of("FindAllDialog")
@@ -603,7 +633,9 @@ def run(d: Demo, with_ai: bool) -> None:
         dlg.run()
         d.pump(until=lambda: dlg.results.topLevelItemCount() > 0, timeout=30)
         d.pump(2.5)
-        assert dlg.results.topLevelItemCount() > 0 and "matches" in dlg.status.text(), f"find all: {dlg.status.text()!r}"
+        assert dlg.results.topLevelItemCount() > 0 and "matches" in dlg.status.text(), (
+            f"find all: {dlg.status.text()!r}"
+        )
         d.close_windows("FindAllDialog")
 
     S("Find in all open logs", find_all, 0.5)
@@ -619,7 +651,9 @@ def run(d: Demo, with_ai: bool) -> None:
         start = tab.document.source.line_count()
         for i in range(20, 32):
             with path.open("a", encoding="utf-8") as f:
-                f.write(f"2026-11-18 10:00:{i:02d} {'ERROR payment gateway timeout' if i == 28 else 'INFO heartbeat'} {i}\n")
+                f.write(
+                    f"2026-11-18 10:00:{i:02d} {'ERROR payment gateway timeout' if i == 28 else 'INFO heartbeat'} {i}\n"
+                )
             d.pump(0.5)
         d.pump(until=lambda: tab.document.source.line_count() > start, timeout=15)
         assert tab.document.source.line_count() > start, "live tail did not pick up new lines"
@@ -694,7 +728,17 @@ def run(d: Demo, with_ai: bool) -> None:
 
     def evtx() -> None:
         target = out_dir / "system.evtx"
-        subprocess.run(["wevtutil", "epl", "System", str(target), "/q:*[System[TimeCreated[timediff(@SystemTime) <= 172800000]]]", "/ow:true"], check=True)
+        subprocess.run(
+            [
+                "wevtutil",
+                "epl",
+                "System",
+                str(target),
+                "/q:*[System[TimeCreated[timediff(@SystemTime) <= 172800000]]]",
+                "/ow:true",
+            ],
+            check=True,
+        )
         before = win.tabs.count()
         win.open_evtx(str(target))
         d.pump(until=lambda: win.tabs.count() > before, timeout=120)
@@ -709,7 +753,9 @@ def run(d: Demo, with_ai: bool) -> None:
         def choose(w: QWidget) -> None:
             for i in range(w.channels.count()):
                 item = w.channels.item(i)
-                item.setCheckState(Qt.CheckState.Checked if item.text().startswith("Application") else Qt.CheckState.Unchecked)
+                item.setCheckState(
+                    Qt.CheckState.Checked if item.text().startswith("Application") else Qt.CheckState.Unchecked
+                )
             w.follow.setChecked(True)
             d.pump(1.5)
 
@@ -738,7 +784,9 @@ def run(d: Demo, with_ai: bool) -> None:
             state["result"] = w.test_result.text()
 
         d.modal(win.act_ai_settings.trigger, act, hold=2.5)
-        assert "qwen" in state.get("result", "") or "OK" in state.get("result", "") or "✓" in state.get("result", ""),             f"connection test said: {state.get('result')!r}"
+        assert "qwen" in state.get("result", "") or "OK" in state.get("result", "") or "✓" in state.get("result", ""), (
+            f"connection test said: {state.get('result')!r}"
+        )
 
     S("AI settings: provider = local Ollama, test connection", settings_dialog, 0.5)
 
@@ -754,14 +802,19 @@ def run(d: Demo, with_ai: bool) -> None:
 
         QTimer.singleShot(0, lambda: None)
         d.modal(lambda: win.act_explain.trigger(), send, hold=1.0, accept=True)
-        d.speak('AI wait: line')
+        d.speak("AI wait: line")
         d.pump(until=lambda: not win.ai.service.busy, timeout=300)
         inspector = tab.inspector
-        assert inspector._explanation is not None and not inspector.ai_status.text().startswith("⚠"),             f"no answer: {inspector.ai_status.text()!r}"
+        assert inspector._explanation is not None and not inspector.ai_status.text().startswith("⚠"), (
+            f"no answer: {inspector.ai_status.text()!r}"
+        )
 
     S("AI: explain the selected line (preview, then local model answer)", explain, 4.0)
-    S("AI: answer shown in the Inspector", lambda: d.tab().inspector.tabs.setCurrentIndex(d.tab().inspector.tabs.count() - 1), 3.0)
-
+    S(
+        "AI: answer shown in the Inspector",
+        lambda: d.tab().inspector.tabs.setCurrentIndex(d.tab().inspector.tabs.count() - 1),
+        3.0,
+    )
 
     def explain_patterns() -> None:
         win.analyze("patterns")
@@ -770,11 +823,11 @@ def run(d: Demo, with_ai: bool) -> None:
         tab = d.tab()
         tab.inspector._explanation = None
         button = next(b for b in window.findChildren(QPushButton) if b.text().startswith("Explain these patterns"))
-        window.pages['patterns'].run_button.click()
+        window.pages["patterns"].run_button.click()
         d.pump(0.3)
-        d.pump(until=lambda: bool(window.pages['patterns']._patterns), timeout=120)
+        d.pump(until=lambda: bool(window.pages["patterns"]._patterns), timeout=120)
         d.modal(button.click, lambda w: d.pump(2.5), hold=1.0, accept=True)
-        d.speak('AI wait: patterns')
+        d.speak("AI wait: patterns")
         d.pump(until=lambda: not win.ai.service.busy, timeout=300)
         assert tab.inspector._explanation is not None, f"no answer: {tab.inspector.ai_status.text()!r}"
         d.close_windows("AnalysisWindow")
@@ -806,7 +859,9 @@ def main() -> int:
     app = QApplication([])
     ai = AIConfig(enabled=True, provider=Provider.LOCAL, local_api="ollama", local_url="http://localhost:11434",
                   local_model=OLLAMA_MODEL, preview_before_send=True)  # fmt: skip
-    settings = Settings(theme="light", recent_files=[str(SAMPLES / n) for n in ("app_small.log", "u_ex261113.log", "app.json")])
+    settings = Settings(
+        theme="light", recent_files=[str(SAMPLES / n) for n in ("app_small.log", "u_ex261113.log", "app.json")]
+    )
     settings.set_ai_config(ai)
     apply_theme(app, "light")
     win = MainWindow(settings)
