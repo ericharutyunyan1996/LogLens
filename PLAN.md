@@ -5,6 +5,18 @@
 > offline first, with an optional AI assistant.
 > This file is the working plan: phases have checklists, tick them as we go.
 
+**Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
+`[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests and the quality gate is green.
+
+**Contents**
+1. [Vision](#1-vision) — who it is for and the problems it solves
+2. [Feature pillars](#2-feature-pillars) — P1–P9, what each area covers
+3. [Architecture](#3-architecture) — stack, layout, design rules, measured speed
+4. [Phases & progress](#4-phases--progress) — checklists per phase
+5. [Testing strategy](#5-testing-strategy)
+6. [Research notes](#6-research-notes)
+7. [Decisions log](#7-decisions-log) — decisions that still hold, grouped by topic
+
 ---
 
 ## 1. Vision
@@ -180,7 +192,7 @@ WAS 5011/5002.
   must **cite the exact lines/events** it used; suggestions, never actions.
 - Pluggable `AIProvider`; first: **Claude** via the official `anthropic` SDK (default model `claude-opus-5-5`,
   structured JSON output, prompt caching). Connection: API key in Windows Credential Manager, env / `ant auth login`
-  profile, or enterprise cloud (Bedrock / Vertex / Foundry). Later option: a local model provider (no data leaves the PC).
+  profile, or enterprise cloud (Bedrock / Vertex / Foundry). Also a **local model provider** (Ollama / OpenAI-compatible servers): no data leaves the PC.
 - **Privacy**: redaction (users, hosts, IPs, emails, tokens, connection strings, profile paths) + preview of exactly what
   is sent; nothing sent without a click; per-profile disable.
 - Reviewed answers can be saved into the user KB (→ offline next time).
@@ -190,10 +202,15 @@ WAS 5011/5002.
   error, correlated events, diagnosis, KB references, AI notes — redacted on request.
 
 ### P9. Installed product (distribution)
-- `LogLens.exe` via PyInstaller (no Python needed); Inno Setup installer (per-user, no admin) + MSI (WiX) for
-  Intune/SCCM/GPO; portable zip too (users ask for no-install on servers).
+- `LogLens.exe` via PyInstaller (no Python needed); **MSI** (WiX 5) per machine with an install-folder dialog, clean
+  in-place upgrades and a remembered install folder, for Intune/SCCM/GPO and normal users alike; an Inno Setup installer
+  (per user, no admin) and a portable zip are built too (users ask for no-install on servers).
+- Standard layout: binaries in `Program Files\LogLens\bin`, settings and KB in `%APPDATA%\LogLens`, logs in
+  `%LOCALAPPDATA%\LogLens` — nothing is written under Program Files.
 - Start-menu shortcut, uninstall entry, file associations (`.log`, `.evtx`), Explorer "Open with LogLens".
-- Code signing; update check later. User data in `%APPDATA%\LogLens` survives upgrades.
+- **Code signing**: a local self-signed certificate for testing, a real certificate via release-workflow secrets for
+  public builds. Update check later. User data survives upgrades.
+- **GitHub releases**: a tag builds, signs and publishes only the signed MSI; the demo video sits on its own release.
 
 ---
 
@@ -204,30 +221,33 @@ pytest · PyInstaller.
 
 ```
 LogLens/
-├─ PLAN.md · README.md · pyproject.toml (ruff, mypy, pytest config) · .pre-commit-config.yaml · .editorconfig
-├─ docs/CODING_STANDARDS.md       rules: generic-only, layering, threading, style, tests, workflow
+├─ README.md · PLAN.md · LICENSE · pyproject.toml (ruff, mypy, pytest) · .pre-commit-config.yaml · .editorconfig
+├─ docs/                          CODING_STANDARDS.md (rules), PROJECT_GUIDE.md (maintainer map), images/ (README shots)
 ├─ loglens/
 │  ├─ app.py, __main__.py         bootstrap (python -m loglens), theme, logging
-│  ├─ paths.py, settings.py       %APPDATA%\LogLens\settings.json
+│  ├─ paths.py, settings.py       %APPDATA%\LogLens (settings, KB), %LOCALAPPDATA%\LogLens (logs, event exports)
 │  ├─ core/                       ── pure Python, no Qt, unit-tested ──
-│  │  ├─ encoding.py, fileio.py   encodings (BOM/UTF-16/ANSI); share-delete handles, file identity
-│  │  ├─ line_index.py            numpy newline index, incremental, thread-safe snapshots
-│  │  ├─ text_source.py           lines (display-clipped and full), change detection (grown / reset / missing)
-│  │  ├─ search.py                query plans (literal / prefilter / regex), multi-query, RangeTask, process pools
-│  │  ├─ regex_tools.py           literal prefilter extraction, case analysis
-│  │  ├─ highlight.py             rules + precise level presets
-│  │  ├─ timestamps.py            generic timestamp detection (record start vs continuation) — seed of formats
-│  │  ├─ navigation.py, units.py  next/prev over sorted line arrays; human sizes
-│  │  └─ payloads/                pluggable formatters: JSON, XML, JWT, URL/query, SQL, fields, base64, headers
+│  │  ├─ files & search           encoding, fileio, line_index, text_source, search, regex_tools, filters, navigation
+│  │  ├─ records & time           timestamps, timeparse, records, histogram, timeline, units
+│  │  ├─ formats/                 detection engine + 25 built-in formats, custom layouts (log4net/NLog/Serilog)
+│  │  ├─ payloads/                pluggable formatters: JSON, XML, JWT, URL/query, SQL, fields, base64, headers, stack traces
+│  │  ├─ analysis                 patterns, field_stats, http (requests / transactions), secrets, highlight, ansi
+│  │  ├─ winevent/                Event Log reader, entities, EventRecord models, WER reports
+│  │  ├─ kb/                      built-in seed KB (TOML), codes, signatures, knowledge lookup, user store (SQLite)
+│  │  ├─ diagnose/                recipes and coverage / gap warnings
+│  │  ├─ ai/                      providers (Claude, local Ollama / OpenAI-compatible), config, credentials, redaction
+│  │  └─ bundles, packs, report, watch, service_status, elevation, websearch
 │  ├─ services/                   ── QObject + signals, no widgets ──
-│  │  ├─ jobs.py                  JobSlot (one live job, cancel, stale-result rejection), start_worker
-│  │  └─ log_document.py          LogDocument: index, tail, search, marks, bookmarks for one file
-│  ├─ ui/                         ── widgets only ──
-│  │                              main_window, welcome_page, log_tab, log_view, search_bar, highlighter_dialog,
-│  │                              models, theme, icons
-│  └─ (planned) formats/ winevent/ kb/ analysis/ insights/ watch/ ai/
-├─ tests/                         mirrors the package: core/, services/, ui/ + conftest (qapp, wait_for, isolated APPDATA)
-└─ tools/                         fault_sim, bench, ui_bench, screenshots, profile_logs, fetch_samples
+│  │                              jobs (JobSlot), log_document, analysis / diagnosis / eventlog / export / multi jobs,
+│  │                              knowledge_service, ai_service, watch_service, single_instance
+│  └─ ui/                         ── widgets only ──
+│                                 main_window, log_tab, log_view, filter_panel, inspector, columns_view, analysis windows,
+│                                 dialogs (AI, KB, diagnose, event logs, bundles, report, watch, time), dashboard, theme
+├─ tests/                         mirrors the package: core/, services/, ui/ (1,100+ tests) + conftest (qapp, isolated APPDATA)
+├─ tools/                         build (installer), signing.ps1, demo (live feature tour + video), fault_sim, bench,
+│                                 ui_bench, screenshots, profile_logs, fetch_samples
+├─ packaging/                     PyInstaller spec, WiX (MSI) source, Inno Setup script, launcher
+└─ .github/                       release workflow (signed MSI), Dependabot for actions
 ```
 
 **Design rules** (full list in `docs/CODING_STANDARDS.md`)
@@ -262,7 +282,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo
 - [x] Deps in `.venv` (PySide6 6.12, numpy, pywin32, pytest)
 - [x] App data folder + JSON settings + rotating log file of LogLens itself
 - [x] Main window: tabs, menus, toolbar, status bar, drag & drop, recent files, welcome page
-- [x] PyCharm project renamed to LogLens (folder rename pending — needs PyCharm closed)
+- [x] Project named LogLens (folder, package, IDE project)
 
 ### Phase 1 — Core text viewer ✅ (+ polish)
 - [x] Encoding detection (BOM, UTF-16 heuristics, UTF-8, ANSI fallback) + manual override menu
@@ -414,14 +434,24 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo
       (`dist/LogLens`, 181 MB) + portable zip (83 MB)
 - [x] `packaging/installer.iss` (Inno Setup): per-user or all users, Start menu / desktop, "Open with LogLens" for
       any file, optional default for .log / .evtx — built automatically when Inno Setup 6 is installed
-- [x] **MSI** (`dist\LogLens-<ver>.msi`): WiX 5 as a project-local dotnet tool (MS-RL; no EULA step), per-machine
-      install, Start menu, "Open with LogLens", silent install `msiexec /i … /qn`; passes ICE validation; unsigned
-      (internal use)
+- [x] **MSI** (`dist\release\LogLens-<ver>.msi`): WiX 5 as a project-local dotnet tool (MS-RL; no EULA step), per-machine
+      install with an **install-folder dialog**, Start menu, "Open with LogLens", silent install `msiexec /i … /qn`;
+      passes ICE validation
+- [x] **Upgrades**: fixed `UpgradeCode`, `x.y.z` versions checked by the build, `MajorUpgrade` removes the old version
+      first (no orphaned files), custom install folder remembered; tested install → upgrade → single entry
+- [x] **Standard directory layout**: read-only binaries in `bin\`; settings/KB in `%APPDATA%`; logs and exports in
+      `%LOCALAPPDATA%` (`paths.log_dir`)
+- [x] **Local code signing**: `tools/signing.ps1` (self-signed cert in the user store, `signtool` with a PowerShell
+      fallback, optional trust step), wired into `tools/build.py` (`--require-signature` / `--no-sign`)
+- [x] **GitHub release workflow**: tag → build → sign → publish only the signed MSI; builds an unsigned test installer
+      when no certificate is configured; current action versions + Dependabot
+- [x] **Demo & README assets**: `tools/demo.py` drives the real app through every feature (65 steps, fails on any
+      exception), records a narrated video (offline TTS) and saves the README screenshots; MIT license
 - [ ] Update check (needs a release host)
 
 ### Later / ideas
 Remote machines (event logs over RPC, UNC files) · CLI `loglens diagnose --profile MyApp --since 1h` · ETW sessions ·
-WER crash-dump folder viewer · plugin formats · local AI model provider.
+WER crash-dump folder viewer · plugin formats.
 
 ---
 
@@ -436,8 +466,8 @@ WER crash-dump folder viewer · plugin formats · local AI model provider.
   Elastic Apache/Nginx samples into `samples/internet/` (git-ignored).
 - **Fault simulator** `tools/fault_sim.py`: `gen-log` (app / IIS / JSON), `append` (live + rotation); later
   `crash-native`, `crash-dotnet`, `scenario` for real Windows events.
-- **Real data (read-only)**: local Application/System logs and IIS logs on this machine, and the user's connector-log
-  corpus (`tools/profile_logs.py <folder>` profiles any folder). Real logs are never copied into the repo; tests use
+- **Real data (read-only)**: local Application/System logs and IIS logs on the dev machine, and a private corpus of application
+  logs (`tools/profile_logs.py <folder>` profiles any folder). Real logs are never copied into the repo; tests use
   synthetic lines with the same shapes. We do **not** stop or break the real IIS site or services.
 
 ## 6. Research notes (Nov 2026)
@@ -454,7 +484,7 @@ WER crash-dump folder viewer · plugin formats · local AI model provider.
   (logparserplus.com), IIS W3C / time-taken docs (learn.microsoft.com), CMTrace format notes (cmtraceopen.com),
   W3C trace-context, EventLogExpert (Microsoft) for offline evtx rendering.
 
-### Findings from a real-world corpus (user-provided connector logs, 52 files, 282 MB, read-only)
+### Findings from a real-world corpus (a private set of application logs, 52 files, 282 MB, read-only)
 LogLens is for *any* app; these logs are just a realistic test corpus (log4net layout, UTF-8 BOM, 985 K lines).
 - **58 % of lines are continuation lines** (only 408 K of 985 K start a record): config dumps, summary reports,
   HTTP header blocks, `Key : Value` blocks, stack traces → **multi-line records are the #1 Phase 2 item**.
@@ -479,53 +509,85 @@ CBS, DISM, setupapi (dev/setup), IIS W3C (2 sites, 126 files), HTTPERR, NetSetup
 - Payloads found in the wild: query strings (IIS), URLs, fields, JSON, **JWTs in query strings** (→ secrets feature).
 
 ## 7. Decisions log
-- 2026-11-13 — Name **LogLens**; Python 3.14 + PySide6; offline KB that learns + optional AI (Claude first, pluggable;
-  API key or other auth); combine correlation, unified timeline, insights and live watch.
-- 2026-11-13 — Not only an Event Viewer companion: a **general log analyzer** first (formats, structure,
-  request/response, patterns, compare), Windows specialisation second.
-- 2026-11-13 — Testing via our own fault simulator; the user's IIS site/services are not modified.
-- 2026-11-13 — Never memory-map log files and always open with FILE_SHARE_DELETE (don't break writers' rotation).
-- 2026-11-13 — Search runs in process pools; regex literal prefilter; background work at below-normal priority.
-- 2026-11-13 — Native Windows 11 Qt style + thin style sheet; light / dark / system theme.
-- 2026-11-13 — Distribution: installer (Inno Setup, MSI for enterprise) + portable zip.
-- 2026-11-13 — **Generic only**: no app/vendor/connector-specific code; samples inform generic features and tests.
-- 2026-11-13 — Layering `core → services → ui`; `LogDocument` owns per-file state; quality gate ruff + mypy + pytest
-  (+ pre-commit); standards in `docs/CODING_STANDARDS.md`.
-- 2026-11-13 — Details pane = pluggable payload formatters (JSON, XML, JWT, URL, SQL, fields, base64, headers).
-- 2026-11-13 — UI rework after user testing: Inspector on the right (Details / Raw / AI), filter panel with chips,
-  levels, context lines; AI assistant reachable from the AI menu, toolbar and Inspector.
-- 2026-11-13 — AI requests only on explicit click, redacted, preview on by default; API keys only in Windows
-  Credential Manager; default model `claude-opus-5-5`, effort medium.
-- 2026-11-13 — Level words count only as levels in level positions (CAPS token, level field, record header, MEL
-  prefix); prose problem words are shown but not counted.
-- 2026-11-13 — Records: a record = timestamped line + continuations, layout from the file's dominant timestamp
-  pattern; time navigation and time filters by binary search (assumes time grows through the file).
-- 2026-11-13 — Packs are plain JSON (filters + highlighters) and TOML (knowledge); user KB in SQLite next to the
-  settings; unknown errors queue themselves only when the user inspected them.
-- 2026-11-13 — Secrets are detected once (`core/secrets.py`) and reused by the Inspector, masking, reports and AI.
-- 2026-11-13 — Analyses run as background jobs over the whole file or the current filter, with caps stated in the UI.
-- 2026-11-13 — One window per user session (local socket with acknowledgement); elevated restarts use
-  `--new-window` and reopen the same files.
-- 2026-11-13 — The fault simulator crashes only its own child processes (Python null read, csc-compiled .NET program).
-- 2026-11-13 — Local AI via plain HTTP (no extra packages): Ollama native API or the OpenAI-compatible chat API;
-  answers streamed so progress is visible and requests can be cancelled.
-- 2026-11-13 — MSI built with WiX **5** (MS-RL) as a local dotnet tool; WiX 7 needs the OSMF EULA, which is the
-  organisation's decision. Packages stay unsigned for internal distribution (user decision).
-- 2026-11-13 — Formats: detection on the first 2,000 lines; the columns view parses only visible rows; facets and SQL
-  stream records (SQL table capped at 1 M records).
-- 2026-11-13 — Folder renamed to `LogLens`. Four independent code reviews (core logic, services/threading,
-  security/privacy, UI/UX; ~60 findings, most reproduced) → every confirmed finding fixed with a regression test.
-  Key design changes: live growth handled by a background *tail job* with a per-result-set "covered up to" contract
-  (no synchronous tail on the UI thread; hits always sorted/complete; time-range filters extend incrementally);
-  a reset gets a fresh `TextLogSource`; alerts evaluate each completed line once on a worker; the Inspector only
-  re-renders when its record changes; no Ctrl+Alt+letter shortcuts (AltGr); local AI bypasses proxies and is
-  loopback-only by default; secrets redaction for AI can't be turned off; zip extraction validates every path part;
-  single-instance pipe is per session and verifies the server's user.
-- 2026-11-13 — `docs/PROJECT_GUIDE.md` is the developer/maintainer map (architecture, code map, how-tos, build).
-- 2026-11-13 — Time handling hardened (core review): parsed times limited to 1970-01-02 … 3000-12-30 UTC
-  (placeholder dates = no time; Windows can't convert outside), leftmost timestamp wins, a line without a timestamp
-  takes its own record's time, year-less dates never land in the future. Each log gets its **own clock** after
-  detection — UTC for W3C/IIS (`LogFormat.times_utc`), day/month order inferred from the file — while the user's
-  zone/shift correction stays sticky. Display code uses `timeparse.to_local` (never raises). Patterns with nested
-  repetition (`(a+)+`) are refused everywhere they can be entered (highlighters, packs, KB) with a readable reason.
 
+Each entry is a decision that still holds; the *why* is in the sentence. Grouped by topic, newest ideas last in each group.
+
+### Product & scope
+- Name **LogLens**; Python + PySide6; an offline knowledge base that learns, plus an optional AI assistant (Claude first,
+  pluggable; API key or other auth). Correlation, a unified timeline, insights and live watch belong together.
+- Not only an Event Viewer companion: a **general log analyzer** first (formats, structure, request/response,
+  patterns, compare), Windows specialisation second.
+- **Generic only**: no app-, vendor- or connector-specific code. Samples inform generic features and tests.
+- Testing uses our own fault simulator; real services and sites on the dev machine are never modified, and the
+  fault simulator crashes only its own child processes (a Python null read, a csc-compiled .NET program).
+- The project is open source under the **MIT** license, so anyone can use it.
+
+### Files, search & performance
+- Never memory-map log files, and always open them with `FILE_SHARE_DELETE`, so a writer's rotation is never broken.
+- Search runs in process pools with a regex literal prefilter; background work runs at below-normal priority.
+- Live growth is handled by a background *tail job* with a per-result-set "covered up to" contract: no synchronous
+  tail on the UI thread, hits are always sorted and complete, and time-range filters extend incrementally. A reset
+  gets a fresh `TextLogSource`.
+- Analyses run as background jobs over the whole file or the current filter, with the caps stated in the UI.
+- Formats: detection on the first 2,000 lines; the columns view parses only visible rows; facets and SQL stream
+  records (the SQL table is capped at 1 M records).
+
+### Parsing, records & time
+- Level words count only as levels in level positions (CAPS token, level field, record header, MEL prefix); prose
+  problem words are shown but not counted.
+- A record is a timestamped line plus its continuations, with the layout taken from the file's dominant timestamp
+  pattern. Time navigation and time filters use binary search (time is assumed to grow through the file).
+- Details pane = pluggable payload formatters (JSON, XML, JWT, URL, SQL, fields, base64, headers).
+- Time handling is hardened: parsed times are limited to 1970-01-02 … 3000-12-30 UTC (placeholder dates mean "no
+  time"; Windows can't convert outside that range), the leftmost timestamp wins, a line without a timestamp takes its
+  own record's time, and year-less dates never land in the future. Each log gets its **own clock** after detection
+  (UTC for W3C/IIS via `LogFormat.times_utc`; day/month order inferred from the file) while the user's zone/shift
+  correction stays sticky. Display code uses `timeparse.to_local`, which never raises.
+- Patterns with nested repetition such as `(a+)+` are refused everywhere they can be entered (highlighters, packs, KB),
+  with a readable reason.
+
+### Knowledge, AI & privacy
+- AI requests only on an explicit click, always redacted, preview on by default (and editable); API keys live only in
+  the Windows Credential Manager; the default model is `claude-opus-5-5` with medium effort.
+- Secrets redaction for AI can't be turned off. Secrets are detected once (`core/secrets.py`) and reused by the
+  Inspector, masking, reports and AI.
+- Local AI goes over plain HTTP (no extra packages): the Ollama native API or the OpenAI-compatible chat API. It
+  bypasses proxies, is loopback-only by default, and answers are streamed so progress is visible and requests can be
+  cancelled.
+- Packs are plain JSON (filters + highlighters) and TOML (knowledge). The user KB is SQLite next to the settings;
+  unknown errors queue themselves only when the user inspected them.
+
+### UI & interaction
+- Native Windows 11 Qt style with a thin style sheet; light, dark and system themes.
+- Layering is `core → services → ui`; `LogDocument` owns per-file state.
+- UI reworked after user testing: Inspector on the right (Details / Raw / AI), a filter panel with chips, levels and
+  context lines; the AI assistant is reachable from the AI menu, the toolbar and the Inspector.
+- No Ctrl+Alt+letter shortcuts (AltGr produces them). The Inspector re-renders only when its record changes; alerts
+  evaluate each completed line once, on a worker.
+- One window per user session (a local socket with acknowledgement; the pipe is per session and verifies the server's
+  user). Elevated restarts use `--new-window` and reopen the same files.
+- Zip extraction validates every path part.
+
+### Quality & process
+- Quality gate: ruff + mypy + pytest (plus pre-commit); standards live in `docs/CODING_STANDARDS.md`.
+- `docs/PROJECT_GUIDE.md` is the developer/maintainer map (architecture, code map, how-tos, build).
+- Four independent code reviews (core logic, services/threading, security/privacy, UI/UX; about 60 findings, most
+  reproduced) led to every confirmed finding being fixed with a regression test.
+- The README's screenshots, preview GIF and the demo video come from `tools/demo.py`, which drives the **real** app
+  through every feature (and fails on any exception or dialog left open), so the documentation cannot drift from it.
+
+### Packaging & release
+- Distribution is an MSI (WiX **5**, MS-RL, as a project-local dotnet tool; WiX 7 needs the OSMF EULA, which is the
+  organisation's decision), a portable zip, and an optional Inno Setup installer.
+- The MSI is per-machine with an **install-folder dialog** (no license page). The `UpgradeCode` is fixed forever; the
+  version is `x.y.z` from `loglens.__version__` (the build refuses anything else); `MajorUpgrade` removes the old version
+  first so no files are orphaned; a custom install folder is remembered across upgrades.
+- Install layout: read-only binaries under `Program Files\LogLens\bin`; settings and the knowledge base in
+  `%APPDATA%\LogLens`; logs and event exports in `%LOCALAPPDATA%\LogLens` (nothing is written under Program Files).
+  User data is kept on uninstall and upgrade on purpose.
+- **Signing**: local testing uses a self-signed certificate that stays in the user's certificate store
+  (`tools/signing.ps1`; the key never touches the repo). Public releases need a real code-signing certificate, supplied
+  to the release workflow as secrets.
+- **Releases** publish only the signed MSI (the README rides along). Intermediate build outputs stay in the workflow
+  run, and the demo video lives on its own `demo` release so the installer release stays clean. Without a certificate
+  the workflow builds an unsigned test installer and publishes nothing.
