@@ -149,6 +149,17 @@ class SingleInstance(QObject):
         self._server = server
         return True
 
+    def close(self) -> None:
+        """Stop listening: the pipe name is free again and the server is deleted on the event loop's next turn.
+
+        Call it when the window shuts down; tests call it so no server outlives its test and gets destroyed with
+        events still queued for it.
+        """
+        server, self._server = self._server, None
+        if server is not None:
+            server.close()
+            server.deleteLater()
+
     def _on_connection(self) -> None:
         assert self._server is not None
         socket = self._server.nextPendingConnection()
