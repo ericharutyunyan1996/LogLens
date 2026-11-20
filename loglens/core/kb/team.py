@@ -91,7 +91,9 @@ def runbook_target(runbook: str, folder: Path | str | None) -> tuple[str, str] |
 
 
 def is_git_repo(folder: Path | str) -> bool:
-    return (Path(folder) / ".git").exists()
+    """Whether ``folder`` is in a Git working tree (the ``.git`` entry may be in a parent folder, or a file)."""
+    root = Path(folder).resolve()
+    return any((p / ".git").exists() for p in (root, *root.parents))
 
 
 def git_pull(folder: Path | str) -> tuple[bool, str]:

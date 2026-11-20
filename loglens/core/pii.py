@@ -23,9 +23,11 @@ KINDS = {
 }
 MAX_EXAMPLES = 5
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b")
-_CARD = re.compile(r"(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])")
+_CARD = re.compile(r"(?<![\w/.\-])(?:\d[ -]?){12,18}\d(?![\w/.\-])")
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b")
-_PHONE = re.compile(r"(?<![\w.])(?:\+\d{1,3}[ .-]?)?(?:\(\d{2,4}\)[ .-]?|\d{2,4}[ .-])\d{3,4}[ .-]\d{3,4}(?![\w.])")
+_PHONE = re.compile(
+    r"(?<![\w.\-/])(?:\+\d{1,3}[ .-]?)?(?:\(\d{2,4}\)[ .-]?|\d{2,4}[ .-])\d{3,4}[ .-]\d{3,4}(?![\w.\-/])"
+)
 _SSN = re.compile(r"(?<![\d-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\d-])")
 _IPV4 = re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.]*\d)")
 _TIMESTAMPISH = re.compile(r"^\d{4}[-/]\d{2}[-/]\d{2}")
@@ -39,6 +41,21 @@ class Finding:
     lines: int = 0  # lines that contain it
     examples: list[str] = field(default_factory=list)  # masked
     distinct: set[str] = field(default_factory=set)
+
+
+_BRANDS = (  # (prefix pattern, allowed lengths): a card number starts like a known card brand
+    (re.compile(r"4"), (13, 16, 19)),
+    (re.compile(r"5[1-5]|2(?:2[2-9]\d|[3-6]\d\d|7[01]\d|720)"), (16,)),
+    (re.compile(r"3[47]"), (15,)),
+    (re.compile(r"6011|65|64[4-9]"), (16, 19)),
+    (re.compile(r"35(?:2[89]|[3-8]\d)"), (16, 19)),
+    (re.compile(r"3(?:0[0-5]|[68])"), (14,)),
+    (re.compile(r"62"), (16, 17, 18, 19)),
+)
+
+
+def known_brand(digits: str) -> bool:
+    return any(p.match(digits) and len(digits) in lengths for p, lengths in _BRANDS)
 
 
 def luhn_ok(digits: str) -> bool:
@@ -79,7 +96,7 @@ def _candidates(line: str) -> Iterable[tuple[str, str]]:
         yield "email", m.group(0)
     for m in _CARD.finditer(line):
         digits = re.sub(r"\D", "", m.group(0))
-        if 13 <= len(digits) <= 19 and luhn_ok(digits) and not _TIMESTAMPISH.match(m.group(0)):
+        if 13 <= len(digits) <= 19 and known_brand(digits) and luhn_ok(digits) and not _TIMESTAMPISH.match(m.group(0)):
             yield "card", digits
     for m in _IBAN.finditer(line):
         if iban_ok(m.group(0)):

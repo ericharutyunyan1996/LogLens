@@ -47,3 +47,16 @@ def test_report_is_masked_and_counts_distinct_values() -> None:
     text = render(found)
     assert "a***@x.org" in text and "b@x.org" not in text and "| E-mail address | 3 | 2 |" in text
     assert "No e-mail" in render({}) and mask_value("secret", "x") == "***"
+
+
+def test_ids_and_urls_from_real_logs_are_not_cards_or_phones() -> None:
+    avatar = 'x"image_original":"https://avatars.slack-edge.com/2023-12-27/6394681733813_03f67185fa_original.png"'
+    guid = '"name":"dd78c0cf-3016-4155-8169-bf1090265fbd.png","created":1793657612,"id":"F0CE4FV0STX"'
+    assert run(avatar, guid) == {}
+
+
+def test_card_numbers_need_a_known_brand_and_a_clean_boundary() -> None:
+    assert "card" in run("card 4111 1111 1111 1111 charged")
+    assert "card" in run("amex 378282246310005 ok")
+    assert run("id=6394681733813 done") == {}  # passes Luhn but no brand starts like that
+    assert run("file/4111111111111111/x") == {}

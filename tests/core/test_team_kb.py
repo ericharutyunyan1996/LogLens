@@ -121,3 +121,10 @@ def test_git_pull_explains_a_plain_folder(tmp_path: Path) -> None:
     assert not ok and ("not a Git repository" in message or "not installed" in message)
     assert not is_git_repo(tmp_path)
     assert team.GIT_TIMEOUT_S > 0
+
+
+def test_a_folder_inside_a_git_repository_counts_as_git(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    sub = tmp_path / "docs" / "knowledge"
+    sub.mkdir(parents=True)
+    assert is_git_repo(sub) and is_git_repo(tmp_path)

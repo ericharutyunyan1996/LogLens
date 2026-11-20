@@ -168,6 +168,11 @@ class KnowledgeDialog(QDialog):
         team = self.service.team
         self.team_path.setText(str(team.folder) if team is not None else "")
         self.team_pull_button.setEnabled(self.service.team_is_git)
+        self.team_pull_button.setToolTip(
+            "Runs git pull --ff-only in the team folder"
+            if self.service.team_is_git
+            else "Choose a team folder that is inside a Git repository (it needs a .git folder) to enable this"
+        )
         self.team_entries.clear()
         if team is None:
             self.team_status.setText(message)
