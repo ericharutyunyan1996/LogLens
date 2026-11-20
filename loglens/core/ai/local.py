@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -25,6 +26,8 @@ from typing import IO, Any
 from .claude import AIError
 from .config import LOCAL_API_OLLAMA, AIConfig, is_loopback_url
 from .explain import EXPLANATION_SCHEMA, SYSTEM_PROMPT, ExplainRequest, Explanation
+from .status import ProviderStatus, scrub
+from .validation import preflight
 
 __all__ = ["LocalProvider", "check_local_url", "is_loopback_url", "list_models", "parse_answer"]
 
@@ -39,6 +42,7 @@ JSON_INSTRUCTION = (
     "missing_information, confidence (high|medium|low)."
 )
 Progress = Callable[[str], None]
+TEST_TIMEOUT_S = 180.0  # the first request may have to load the model into memory
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
@@ -65,12 +69,16 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedire
 def check_local_url(config: AIConfig) -> None:
     """Raise AIError unless the model server is on this computer (or the user explicitly allowed a remote one)."""
     if not config.local_url.strip().lower().startswith(("http://", "https://")):
-        raise AIError(f"The model server address must start with http:// or https:// (got {config.local_url!r}).")
+        raise AIError(
+            f"The model server address must start with http:// or https:// (got {config.local_url!r}).",
+            ProviderStatus.INCOMPLETE,
+        )
     if not config.local_allow_remote and not is_loopback_url(config.local_url):
         raise AIError(
             f"The model server {config.local_url} is not on this computer, so log lines would be sent over the "
             "network to it. Use a local address (http://localhost:… or http://127.0.0.1:…), or explicitly allow a "
-            "model server on another computer in AI settings."
+            "model server on another computer in AI settings.",
+            ProviderStatus.INCOMPLETE,
         )
 
 
@@ -90,21 +98,48 @@ def _request(
     return _OPENER.open(request, timeout=timeout)
 
 
+def _timed_out(exc: Exception) -> bool:
+    reason = getattr(exc, "reason", None)
+    return isinstance(exc, TimeoutError | socket.timeout) or isinstance(reason, TimeoutError | socket.timeout)
+
+
 def _friendly(exc: Exception, config: AIConfig) -> AIError:
+    """A user-presentable AIError (with the right status) for an HTTP / network failure of the local server."""
     if isinstance(exc, urllib.error.HTTPError):
-        detail = exc.read().decode("utf-8", "replace")[:300]
+        detail = scrub(exc.read().decode("utf-8", "replace")[:300])
         if exc.code == 404:
             return AIError(
-                f"The server doesn't know the model '{config.local_model}'. "
+                f"Model unavailable: the server doesn't know the model '{config.local_model}'. "
                 + (
                     f"Install it with: ollama pull {config.local_model}"
                     if config.local_api == LOCAL_API_OLLAMA
                     else "Load it in your model server first."
-                )
+                ),
+                ProviderStatus.MODEL_UNAVAILABLE,
             )
-        return AIError(f"The local model server answered {exc.code}: {detail}")
+        if exc.code == 401:
+            return AIError(
+                f"Authentication failed: the model server refused the request (401). {detail}",
+                ProviderStatus.AUTH_FAILED,
+            )
+        if exc.code == 403:
+            return AIError(
+                f"Permission denied: the model server forbids this request (403). {detail}",
+                ProviderStatus.PERMISSION_DENIED,
+            )
+        status = ProviderStatus.PROVIDER_UNAVAILABLE if exc.code >= 500 else ProviderStatus.ERROR
+        return AIError(f"The local model server answered {exc.code}: {detail}", status)
     server = "Ollama (start it, or run: ollama serve)" if config.local_api == LOCAL_API_OLLAMA else "your model server"
-    return AIError(f"Can't reach a local model server at {config.local_url} — is {server} running? ({exc})")
+    if _timed_out(exc):
+        return AIError(
+            f"Request timed out: {config.local_url} did not answer in time. A large model can take a while to load "
+            "the first time: try again.",
+            ProviderStatus.TIMED_OUT,
+        )
+    return AIError(
+        f"Provider unavailable: can't reach a local model server at {config.local_url}. Is {server} running? ({exc})",
+        ProviderStatus.PROVIDER_UNAVAILABLE,
+    )
 
 
 def list_models(config: AIConfig) -> list[str]:
@@ -147,8 +182,9 @@ class LocalProvider:
     compatibility_used = False
 
     def __init__(self, config: AIConfig) -> None:
-        if not config.local_model:
-            raise AIError("Choose a local model in AI settings (click Refresh to list the installed ones).")
+        problem = preflight(config, None)
+        if problem is not None:
+            raise AIError(problem.message, problem.status)
         check_local_url(config)
         self.config = config
 
@@ -255,8 +291,44 @@ class LocalProvider:
         )
 
     def test_connection(self) -> str:
+        """Server reachable, model installed, and one tiny real generation: returns the model label."""
         models = list_models(self.config)
         if self.config.local_model not in models and f"{self.config.local_model}:latest" not in models:
             installed = ", ".join(models[:8]) or "none"
-            raise AIError(f"'{self.config.local_model}' is not installed on the server. Installed: {installed}.")
+            raise AIError(
+                f"Model unavailable: '{self.config.local_model}' is not installed on the server. "
+                f"Installed: {installed}.",
+                ProviderStatus.MODEL_UNAVAILABLE,
+            )
+        self._probe()
         return f"{self.config.local_model} (local)"
+
+    def _probe(self) -> None:
+        """Ask the model for one word: proves it loads and generates, not just that it is listed."""
+        prompt = [{"role": "user", "content": "Reply with the single word OK."}]
+        try:
+            if self.config.local_api == LOCAL_API_OLLAMA:
+                body: dict[str, Any] = {
+                    "model": self.config.local_model,
+                    "messages": prompt,
+                    "stream": False,
+                    "options": {"num_predict": 24, "temperature": 0},
+                }
+                with _request(self.config, "/api/chat", body, TEST_TIMEOUT_S) as response:
+                    data = json.load(response)
+                if data.get("error"):
+                    raise AIError(f"The local model failed: {data['error']}")
+                message = data.get("message", {})
+                answer = str(message.get("content") or message.get("thinking") or "")
+            else:
+                body = {"model": self.config.local_model, "messages": prompt, "max_tokens": 24, "temperature": 0}
+                with _request(self.config, "/v1/chat/completions", body, TEST_TIMEOUT_S) as response:
+                    data = json.load(response)
+                choice = (data.get("choices") or [{}])[0].get("message") or {}
+                answer = str(choice.get("content") or choice.get("reasoning_content") or "")
+        except AIError:
+            raise
+        except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+            raise _friendly(exc, self.config) from exc
+        if not answer.strip():
+            raise AIError("The model is installed but returned an empty answer to a test question.")

@@ -570,6 +570,28 @@ Each entry is a decision that still holds; the *why* is in the sentence. Grouped
   user). Elevated restarts use `--new-window` and reopen the same files.
 - Zip extraction validates every path part.
 
+### Real-world logs: classification, requests, payloads, AI providers
+- **Severity comes from the record header**: when the header names a level (INFO, OFF, DEBUG, ERROR …) that is the
+  record's level; words in the message ("EventLogLevel: Error", "Processing types: New, Failed") never change it.
+  Keyword / level-field detection is only the fallback for lines without a header level (continuation lines, free
+  text). Nothing in the rules knows any application name. DEBUG / TRACE lines that merely mention an exception are
+  not errors; they keep the red problem-word highlight so they stay visible.
+- **Request/response detection is by shape, not by vocabulary**: `METHOD /path` text, key=value traces
+  (`Method=…, Url=…`, `Status=…`), `[START]`/`[END]` markers with an id, and verb + id + URL calls (`Requesting [id] …` /
+  `Received … [id]`). A response is matched by shared id first (sure), then by the thread (medium) or the target (low):
+  weak matches are flagged uncertain, a response that names an id nobody opened is never guessed onto another request, and
+  unanswered requests and responses without a request stay in the list.
+- **JSON / XML are first-class**: the exact raw text is always kept; the structured tree is built lazily (a page of
+  children at a time), searchable, copyable, parsed off the UI thread, and says so when it is limited. Malformed payloads
+  show a parse error next to their untouched raw text. XML with a DOCTYPE / ENTITY is never parsed (no external
+  resources, no expansion).
+- **AI providers report real statuses**: every provider is validated field by field before any request, "Test connection"
+  makes a real tiny request (inference included for local models), errors name what is wrong (missing Vertex role,
+  disabled API, missing model, timeout, quota …), secrets are scrubbed from every message, a status is dropped as soon as
+  a setting changes, and a failing provider is never replaced silently by another one. Saved API keys can be deleted
+  (one provider's, or all), and the deletion is verified by reading the entry back; cloud identities (gcloud, AWS) are
+  not stored by LogLens.
+
 ### Quality & process
 - Quality gate: ruff + mypy + pytest (plus pre-commit); standards live in `docs/CODING_STANDARDS.md`.
 - `docs/PROJECT_GUIDE.md` is the developer/maintainer map (architecture, code map, how-tos, build).

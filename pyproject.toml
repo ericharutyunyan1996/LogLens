@@ -1,6 +1,6 @@
 [project]
 name = "loglens"
-version = "0.1.0"
+version = "0.1.1"
 description = "Fast log viewer & analyzer for Windows: huge files, live tail, payload decoding, Event Log correlation"
 readme = "README.md"
 license = "MIT"
@@ -75,7 +75,7 @@ ignore = [
 "loglens/app.py" = ["PLC0415"]
 "loglens/ui/*.py" = ["N802", "N815"]   # Qt overrides (paintEvent) and signal names (currentRowChanged) are camelCase
 "loglens/services/*.py" = ["N815"]     # Qt signal names
-"tests/**/*.py" = ["PLR0915", "T20", "PLC0415"]
+"tests/**/*.py" = ["PLR0915", "T20", "PLC0415", "E501"]  # E501: tests quote long log lines verbatim
 "tools/*.py" = ["T20", "PLC0415", "E402"]
 # The demo is one long linear walkthrough of the app (a step per feature) with narration text; long lines and a long
 # run() are the point there.

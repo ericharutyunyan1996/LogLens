@@ -45,8 +45,8 @@ def test_prose_level_words_are_not_levels() -> None:
         "!    idb:                     Assuming device class {99174451-71bd-11dc} is not critical.",
         "     sto: {Reflect Critical Driver Package: C:\\Windows\\System32\\DriverStore\\x.inf}",
         "     inf:                          Class Options  = Configurable BootCritical",
-        "2026-11-13 10:00:00,000 [3] INFO  Importer - Processed 20 items, 0 errors, retry on failure disabled",
-        "2026-11-13 10:00:00,000 [3] INFO  Importer - ImporterConfig.AlertOnErrors: False",
+        "2026-11-13 10:00:00,000 [3] INFO  Worker - Processed 20 items, 0 errors, retry on failure disabled",
+        "2026-11-13 10:00:00,000 [3] INFO  Worker - WorkerConfig.AlertOnErrors: False",
     ]:
         style = style_line(issue_rules, line)
         assert style.bg is None, line

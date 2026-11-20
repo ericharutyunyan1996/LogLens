@@ -37,6 +37,7 @@ from ..services.analysis_jobs import (
 )
 from .analysis_base import LINE_ROLE, AnalysisPage, fill_tree, make_row, make_tree
 from .analysis_fields import FieldsPage, SqlPage
+from .payload_view import RequestResponseView
 
 if TYPE_CHECKING:
     from .log_tab import LogTab
@@ -132,14 +133,27 @@ def _transactions_analyzer(lines: Iterable[tuple[int, str]]) -> list[Transaction
 class TransactionsPage(AnalysisPage):
     title = "Request / response"
     intro = (
-        "Requests paired with the responses that answer them — by a shared request / trace / correlation id or "
-        "GUID, else by thread. Find requests that never got an answer, failed, or were slow. Double-click to jump."
+        "Every request found, with the response that answers it — by a shared request / trace / correlation id or "
+        "GUID (sure), else by the thread or the target (flagged uncertain, never forced). Unanswered requests and "
+        "responses without a request stay in the list. Select a row to see the request and response side by side, "
+        "with their JSON / XML; double-click to jump to the log line."
     )
-    VIEWS = ("All", "Unanswered", "Errors (status ≥ 500)", "Slowest 5 %")
+    VIEWS = (
+        "All",
+        "Unanswered",
+        "Errors (status ≥ 500)",
+        "Slowest 5 %",
+        "Uncertain matches",
+        "Responses without a request",
+        "HTTP calls only",
+        "Operations only (start / end)",
+    )
+    INDEX_ROLE = Qt.ItemDataRole.UserRole + 5
 
     def __init__(self, tab: LogTab, parent: QWidget | None = None) -> None:
         super().__init__(tab, parent)
         self._transactions: list[Transaction] = []
+        self._shown: list[Transaction] = []
         self.view = QComboBox(self)
         self.view.addItems(list(self.VIEWS))
         self.view.currentIndexChanged.connect(self._render)
@@ -150,11 +164,19 @@ class TransactionsPage(AnalysisPage):
         row.addWidget(self.view)
         row.addStretch(1)
         row.addWidget(bookmark)
-        headers = ["Request line", "Method", "Path", "Status", "Duration ms", "Response line", "Key / thread", "Lines"]
+        headers = ["Request line", "Type", "Method", "Path / operation", "Status", "Duration ms", "Response line",
+                   "Match", "Key / thread", "Lines"]  # fmt: skip
         self.tree = make_tree(headers, self)
         self.tree.itemDoubleClicked.connect(lambda item, _c: self.jump(item))
+        self.tree.currentItemChanged.connect(lambda item, _previous: self._on_selected(item))
+        self.detail = RequestResponseView(self)
+        splitter = QSplitter(Qt.Orientation.Vertical, self)
+        splitter.addWidget(self.tree)
+        splitter.addWidget(self.detail)
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
         self.body.addLayout(row)
-        self.body.addWidget(self.tree, 1)
+        self.body.addWidget(splitter, 1)
 
     def analyzer(self) -> Analyzer:
         return _transactions_analyzer
@@ -163,33 +185,66 @@ class TransactionsPage(AnalysisPage):
         assert isinstance(result, list)
         self._transactions = result
         paired = sum(1 for t in result if t.paired)
+        orphans = sum(1 for t in result if t.orphan)
+        unanswered = len(result) - paired - orphans
+        uncertain = sum(1 for t in result if t.uncertain)
         self.status.setText(
-            f"<b>{len(result):,} requests</b> · {paired:,} answered · {len(result) - paired:,} without a response"
+            f"<b>{len(result) - orphans:,} requests</b> · {paired:,} answered ({uncertain:,} uncertain) · "
+            f"{unanswered:,} without a response · {orphans:,} responses without a request"
             if result
             else "No request/response lines recognised in these lines."
         )
+        self.detail.clear()
         self._render()
 
-    def selected_view(self) -> list[Transaction]:
+    def selected_view(self) -> list[Transaction]:  # noqa: PLR0911 - one return per view in the list
         items = self._transactions
         match self.view.currentIndex():
             case 1:
-                return [t for t in items if not t.paired]
+                return [t for t in items if not t.paired and not t.orphan]
             case 2:
                 return [t for t in items if t.status is not None and t.status >= ERROR_STATUS_MIN]
             case 3:
                 timed = sorted((t for t in items if t.duration_ms is not None), key=lambda t: t.duration_ms or 0.0)
                 return timed[int(len(timed) * 0.95) :][::-1]
+            case 4:
+                return [t for t in items if t.uncertain]
+            case 5:
+                return [t for t in items if t.orphan]
+            case 6:
+                return [t for t in items if t.form == "http"]
+            case 7:
+                return [t for t in items if t.form == "operation"]
         return items
 
+    @staticmethod
+    def _match_text(t: Transaction) -> str:
+        if t.orphan:
+            return "response only"
+        if not t.paired:
+            return "no response"
+        return t.match if t.confidence == "high" else f"{t.match} ⚠"
+
     def _render(self) -> None:
-        rows = [
-            make_row([t.request_line + 1, t.method, t.path, t.status, t.duration_ms,
-                  t.response_line + 1 if t.response_line is not None else None, t.key or t.thread, len(t.all_lines)],
-                 t.request_line)
-            for t in self.selected_view()[:MAX_TRANSACTION_ROWS]
-        ]  # fmt: skip
+        self._shown = self.selected_view()[:MAX_TRANSACTION_ROWS]
+        rows = []
+        for index, t in enumerate(self._shown):
+            item = make_row(
+                [t.request_line + 1, "operation" if t.form == "operation" else "http", t.method, t.path, t.status,
+                 t.duration_ms, t.response_line + 1 if t.response_line is not None else None, self._match_text(t),
+                 t.key or t.thread, len(t.all_lines)],
+                t.request_line,
+            )  # fmt: skip
+            item.setData(0, self.INDEX_ROLE, index)
+            rows.append(item)
         fill_tree(self.tree, rows)
+
+    def _on_selected(self, item: QTreeWidgetItem | None) -> None:
+        index = item.data(0, self.INDEX_ROLE) if item is not None else None
+        if index is None or not 0 <= int(index) < len(self._shown):
+            self.detail.clear()
+            return
+        self.detail.show_transaction(self.tab.document, self._shown[int(index)])
 
     def _bookmark_selected(self) -> None:
         wanted = {int(item.data(0, LINE_ROLE)) for item in self.tree.selectedItems()}

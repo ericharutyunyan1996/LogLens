@@ -173,3 +173,11 @@ def test_a_failing_formatter_does_not_hide_the_others(caplog: pytest.LogCaptureF
     analysis = analyze('{"ok": true}', (Broken(), JsonFormatter()))
     assert analysis.kinds == ["JSON"]
     assert "Broken formatter failed" in caplog.text
+
+
+def test_xml_with_a_dtd_or_entities_is_not_parsed() -> None:
+    """Entity declarations can expand exponentially or load files/URLs: such text is left alone (security)."""
+    bomb = '<!DOCTYPE r [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;">]><r>&b;&b;</r>'
+    xxe = '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>'
+    for text in (bomb, xxe, "payload " + bomb):
+        assert analyze(text).located == []

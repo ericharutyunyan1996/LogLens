@@ -53,7 +53,7 @@ CRASH_LINE = (
 )
 TIMEOUT_LINE = "2026-11-13 10:00:01,000 [3] ERROR Consumer orders-7 timed out after 30000 ms (password=Hunter2x)"
 IO_ERROR = "System.IO.IOException: The process cannot access the file '{}' because it is being used by another process."
-IO_LINE = "2026-11-13 10:15:02,123 [12] ERROR Importer - Failed " + IO_ERROR.format(r"C:\in\a.csv")
+IO_LINE = "2026-11-13 10:15:02,123 [12] ERROR Worker - Failed " + IO_ERROR.format(r"C:\in\a.csv")
 
 
 def entry(entry_id: str = "user-queue-timeout", **fields: Any) -> KBEntry:

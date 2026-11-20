@@ -12,6 +12,9 @@ from .base import Section
 # alone (those fail to parse) and not "<2588330>" (names can't start with a digit).
 _ELEMENT_START = re.compile(r"<(?:\?xml|[A-Za-z_][\w.\-]*(?::[\w.\-]+)?[\s>/])")
 MAX_ATTEMPTS = 20
+# A DTD can declare entities that expand exponentially or point at files / URLs: such a document is never parsed
+# (it stays visible as plain text).
+_DOCTYPE = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)", re.IGNORECASE)
 
 
 def _pretty(fragment: str) -> str:
@@ -28,6 +31,8 @@ class XmlFormatter:
             start = m.start()
             if attempt >= MAX_ATTEMPTS or end <= start:
                 break
+            if _DOCTYPE.search(text, start, end + 1):
+                return []
             try:
                 body = _pretty(text[start : end + 1])
             except (ExpatError, ValueError):

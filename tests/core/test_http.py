@@ -421,12 +421,12 @@ def test_pair_by_thread_without_keys() -> None:
         "2026-11-13 10:00:00,050 [8] INFO Api - finished with status=500",
         "2026-11-13 10:00:00,090 [7] INFO Api - returned 200",
         "2026-11-13 10:00:00,095 GET /orphan",  # no key, no thread: stays unpaired
-        "2026-11-13 10:00:00,099 [9] ERROR Api - Response 502",  # nothing open on thread 9: ignored
+        "2026-11-13 10:00:00,099 [9] ERROR Api - Response 502",  # nothing open on thread 9: bare status, nothing to identify it by: ignored
     ]
-    a, b, orphan = pair_transactions(enumerate(lines))
+    a, b, unanswered = pair_transactions(enumerate(lines))
     assert (a.thread, a.response_line, a.status, a.duration_ms) == ("7", 4, 200, pytest.approx(90.0))
     assert (b.thread, b.all_lines, b.status) == ("8", (1, 2, 3), 500)
-    assert (orphan.request_line, orphan.paired) == (5, False)
+    assert (unanswered.request_line, unanswered.paired) == (5, False)
 
 
 def test_self_contained_lines_and_mismatched_responses() -> None:
@@ -475,4 +475,5 @@ def test_open_requests_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(http, "MAX_OPEN_REQUESTS", 3)
     lines = [f"GET /a/{i} requestId=k{i}" for i in range(5)] + ["done status=200 requestId=k0"]
     transactions = pair_transactions(enumerate(lines))
-    assert len(transactions) == 5 and not any(t.paired for t in transactions)  # k0 was given up before its answer
+    assert len(transactions) == 6 and not any(t.paired for t in transactions)  # k0 was given up before its answer ...
+    assert next(t for t in transactions if t.orphan).key == "k0"  # ... so its answer is kept as an orphan response

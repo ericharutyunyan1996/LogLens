@@ -45,6 +45,7 @@ MAX_TRANSACTIONS = 100_000  # pair_transactions() opens no new transactions beyo
 MAX_OPEN_REQUESTS = 10_000  # unanswered requests waiting for a response; beyond it the oldest is given up (unpaired)
 MAX_TRANSACTION_LINES = 200  # line numbers kept per transaction (request and response lines always included)
 MAX_KEYS_PER_LINE = 4  # correlation keys taken from one line (request id, trace id, a couple of GUIDs)
+FORM_SCAN_CHARS = 4_000  # how much of a line the key=value / marker / verb+id detectors look at
 THREAD_HEADER_CHARS = 160  # a thread id in brackets sits in the line header, not deep in the message
 MAX_DURATION_SAMPLES = 1_000_000  # latencies kept for percentiles (8 MB); beyond it a uniform reservoir sample
 MAX_ENDPOINT_SAMPLES = 10_000  # per-endpoint reservoir: percentiles of 10k samples are within ~1 % of exact
@@ -172,10 +173,24 @@ class Transaction:
     duration_ms: float | None
     all_lines: tuple[int, ...]  # request, related lines, response (capped at MAX_TRANSACTION_LINES)
     thread: str = ""  # thread id used for pairing lines without a key
+    match: str = ""  # how the response was found: key | thread | target | inline | orphan ("" = unanswered)
+    confidence: str = "high"  # high: shared id / self-contained; medium: same thread; low: same target only
+    form: str = "http"  # http | operation (a [START]/[END] pair of a command or query, not an HTTP call)
 
     @property
     def paired(self) -> bool:
-        return self.response_line is not None
+        """A request with its response (an orphan response has no request, so it is not "paired")."""
+        return self.response_line is not None and self.match != "orphan"
+
+    @property
+    def orphan(self) -> bool:
+        """A response whose request could not be identified (kept so it can still be inspected)."""
+        return self.match == "orphan"
+
+    @property
+    def uncertain(self) -> bool:
+        """The association rests on weak evidence (same thread / same target): shown, but flagged."""
+        return self.paired and self.confidence != "high"
 
 
 # ---- shared patterns -------------------------------------------------------------------------------------------------
@@ -213,6 +228,7 @@ _STATUS_REASON = re.compile(
     r"unsupported media type|unprocessable entity|too many requests|internal server error|not implemented|"
     r"bad gateway|service unavailable|gateway timeout)\b"
 )
+_STATUS_PAREN = re.compile(r"\((?P<status>[1-5]\d\d)\)\s+[a-z]")  # .NET WebException: "(502) Bad Gateway"
 _STATUS_BARE = re.compile(r"(?P<status>[1-5](?<![\w.,:/\[\]#-][1-5])\d\d)(?![\w:/\]-])(?!\.\d)" + _NOT_UNIT)
 _DURATION_UNIT = (
     r"ms|msecs?|millis(?:econds?)?|us|µs|μs|usecs?|micros(?:econds?)?|ns|nanos(?:econds?)?|s|secs?|seconds?|mins?|"
@@ -235,11 +251,35 @@ _CLIENT_TEXT = re.compile(
     r"(?:client(?:[ _-]?ip)?|remote(?:[ _-]?(?:addr|address|ip))?|from|ip)\b\s*[=:]?\s*"
     r"(?P<ip>\d{1,3}(?:\.\d{1,3}){3})(?![\d.])"
 )
-_RESPONSE_WORDS = re.compile(r"(?:response|responded|reply|replied|completed?|finished|ended|end|done|returned)\b")
+_RESPONSE_WORDS = re.compile(
+    r"(?:response|responded|reply|replied|completed?|finished|ended|end|done|returned|failed|timed out)\b"
+)
 _REQUEST_WORDS = re.compile(
     r"\b(?:incoming|sending|start(?:ed|ing)?|begin(?:ning)?|receiv(?:ed|ing))\W+(?:\w+\W+){0,3}?request\b"
     r"|\brequest\W+(?:start(?:ed|ing)?|begin|received|incoming)\b"
 )
+# Forms that are not "METHOD /path" text (the logger names and words are irrelevant: only the shape counts):
+#   key=value:  "Request, Method=GET, Url=https://h/p"      "Response, Status=404 (NotFound), Method=GET, Url=…"
+#   markers:    "[START] GetUser [43b4badd] {json}"          "[END] GetUser [43b4badd]; Execution time=7ms"
+#   verb + id:  "Requesting [00000001] https://h/p"          "Received JSON: [00000001]"   "Request failed … (500) …"
+_KV_METHOD = re.compile(r"\bmethod\s*[=:]\s*[\"']?(?P<method>get|post|put|delete|patch|head|options|trace)\b")
+_KV_TARGET = re.compile(
+    r"\b(?:url|uri|path|endpoint|request[ _-]?uri|request[ _-]?url)\s*[=:]\s*[\"']?"
+    r"(?P<target>(?:https?|wss?)://[^\s\"'<>,]+|/[^\s\"'<>,]*)"
+)
+_KV_STATUS = re.compile(r"\b(?:status(?:[ _-]?code)?|code)\s*[=:]\s*[\"']?(?P<status>[1-5]\d\d)(?!\w)")
+_BEGIN_MARK = re.compile(
+    r"\[(?:start|begin|started|enter|entering)\]\s+(?P<name>[^\s\[\]]+)\s+\[(?P<id>[\w.:-]{2,64})\]"
+)
+_END_MARK = re.compile(
+    r"\[(?:end|finish|finished|exit|complete|completed|done|stop|stopped)\]\s+(?P<name>[^\s\[\]]+)\s+\[(?P<id>[\w.:-]{2,64})\]"
+)
+_CALL_OUT = re.compile(
+    r"\b(?:requesting|calling|fetching|querying|invoking|posting|getting|sending)\s+(?:\[(?P<id>[\w.:-]{2,64})\]\s+)?"
+    r"(?P<target>(?:https?|wss?)://[^\s\"'<>]+)"
+)
+_CALL_BACK = re.compile(r"\b(?:received|got|response|reply|result)\b[^\[\]]{0,40}\[(?P<id>[\w.:-]{2,64})\]")
+_CALL_FAILED = re.compile(r"\b(?:request|call|http request|operation)\s+(?:failed|timed out)\b|\bfailed after\b")
 _TRAILING_PUNCT = ".,;:!?'\""
 _CLOSERS = {")": "(", "]": "[", "}": "{"}
 _ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
@@ -343,7 +383,7 @@ def _int_value(value: object) -> int | None:
     return None
 
 
-def _find_status(low: str, *, after: int | None, loose: bool) -> int | None:
+def _find_status(low: str, *, after: int | None, loose: bool) -> int | None:  # noqa: PLR0911 - one rule per spelling
     """Status code in lower-cased ``low``: right after the request target, by keyword, by reason phrase, or bare
     (only when ``loose``, i.e. the line reads like a response, and only registered codes)."""
     if after is not None:
@@ -358,6 +398,9 @@ def _find_status(low: str, *, after: int | None, loose: bool) -> int | None:
         return int(m["status"])
     m = _STATUS_REASON.search(low)
     if m is not None:
+        return int(m["status"])
+    m = _STATUS_PAREN.search(low)
+    if m is not None and int(m["status"]) in _STANDARD_STATUSES:
         return int(m["status"])
     if loose:
         for bare in _STATUS_BARE.finditer(low):
@@ -1031,11 +1074,101 @@ class _LineInfo:
     keys: tuple[str, ...]  # lower-cased, for matching
     label: str  # first key in its original case, for display
     thread: str
+    form: str = "http"  # http | operation
+    explicit: bool = False  # recognised by an unmistakable shape (marker / key=value / verb + id)
+    style: str = ""  # "kv": key=value pairs (their trace steps also log Status=, which is not the answer)
+
+
+def _id_info(kind: Literal["request", "response", "other"], text: str, low: str, **fields: object) -> _LineInfo:
+    """A _LineInfo for a form-recognised line whose own id (``[43b4badd]``) is its correlation key."""
+    ident = str(fields.pop("ident", "") or "")
+    keys = (ident.lower(),) if ident else ()
+    return _LineInfo(
+        kind,
+        str(fields.get("method", "")),
+        str(fields.get("path", "")),
+        fields.get("status"),  # type: ignore[arg-type]
+        fields.get("duration_ms"),  # type: ignore[arg-type]
+        keys,
+        ident,
+        _thread_of(text),
+        str(fields.get("form", "http")),
+        True,
+        str(fields.get("style", "")),
+    )
+
+
+def _classify_forms(text: str) -> _LineInfo | None:  # noqa: PLR0911 - one return per recognised shape
+    """Request/response shapes that are not ``METHOD /path`` text: key=value pairs, [START]/[END] markers, and a
+    verb followed by an id and a URL ("Requesting [id] https://…" … "Received JSON: [id]"). Generic by shape."""
+    body = text.lstrip()[:2]
+    if body[:1] in ("{", "<") or body in ("[{", '["', "[["):  # a JSON / XML body line: payload, not a request
+        return None
+    if len(text) > FORM_SCAN_CHARS:  # the shape sits in the line header; never scan a multi-megabyte body for it
+        text = text[:FORM_SCAN_CHARS]
+    low = _lower(text)
+
+    if "[" in text:
+        m = _BEGIN_MARK.search(low)
+        if m is not None:
+            ident = text[m.start("id") : m.end("id")]
+            return _id_info(
+                "request", text, low, ident=ident, path=text[m.start("name") : m.end("name")], form="operation"
+            )
+        m = _END_MARK.search(low)
+        if m is not None:
+            ident = text[m.start("id") : m.end("id")]
+            return _id_info(
+                "response", text, low, ident=ident, path=text[m.start("name") : m.end("name")],
+                duration_ms=_find_duration(low), status=None, form="operation",
+            )  # fmt: skip
+    method = _KV_METHOD.search(low)
+    if method is not None:
+        target = _KV_TARGET.search(text) or _KV_TARGET.search(low)
+        if target is not None:
+            rest = text[: target.start("target")] + text[target.end("target") :]
+            status = _KV_STATUS.search(_lower(rest))
+            path = _split_target(target["target"])[0]
+            keys = _correlation_keys(rest, _lower(rest))
+            ident = keys[0] if keys else ""
+            kind: Literal["request", "response", "other"] = "response" if status is not None else "request"
+            return _id_info(
+                kind, text, low, ident=ident, method=method["method"].upper(), path=path,
+                status=int(status["status"]) if status is not None else None,
+                duration_ms=_find_duration(_lower(rest)) if status is not None else None, style="kv",
+            )  # fmt: skip
+    if "[" in text:
+        out = _CALL_OUT.search(low)
+        if out is not None and out["id"]:
+            ident = text[out.start("id") : out.end("id")]
+            return _id_info(
+                "request", text, low, ident=ident, path=_split_target(text[out.start("target") : out.end("target")])[0]
+            )
+        back = _CALL_BACK.search(low)
+        if back is not None:
+            ident = text[back.start("id") : back.end("id")]
+            return _id_info(
+                "response",
+                text,
+                low,
+                ident=ident,
+                status=_find_status(low, after=None, loose=True),
+                duration_ms=_find_duration(low),
+            )
+    if _CALL_FAILED.search(low):  # a failure line without an id: answered by the call open on its thread
+        return _id_info(
+            "response", text, low, status=_find_status(low, after=None, loose=True), duration_ms=_find_duration(low)
+        )
+    return None
 
 
 def _classify(text: str) -> _LineInfo | None:
     """What a line contributes to transactions; None when it can't contribute (no request, key or thread)."""
     request = _find_request(text)
+    if request is None:
+        formed = _classify_forms(text)
+        if formed is not None:
+            return formed
     rest, after = _without_target(text, request)
     low = _lower(rest)
     keys = _correlation_keys(rest, low)
@@ -1056,24 +1189,27 @@ def _classify(text: str) -> _LineInfo | None:
 
 
 class _OpenRequest:
-    __slots__ = ("keys", "label", "lines", "method", "path", "seq", "thread", "time")
+    __slots__ = ("form", "keys", "label", "lines", "method", "path", "seq", "style", "thread", "time", "worker")
 
     def __init__(self, seq: int, line: int, info: _LineInfo, time: datetime | None) -> None:
         self.seq = seq
         self.keys = info.keys
         self.label = info.label
-        self.thread = info.thread if not info.keys else ""  # keyed requests are paired by key only
+        self.thread = info.thread if not info.keys else ""  # keyed requests are paired by key first
+        self.worker = info.thread  # the thread it ran on: answers without a key are matched on it (medium confidence)
+        self.form = info.form
+        self.style = info.style
         self.method = info.method
         self.path = info.path
         self.time = time
         self.lines = [line]
 
 
-def _push(stacks: dict[str, list[_OpenRequest]], key: str, request: _OpenRequest) -> None:
+def _push[K](stacks: dict[K, list[_OpenRequest]], key: K, request: _OpenRequest) -> None:
     stacks.setdefault(key, []).append(request)
 
 
-def _pull(stacks: dict[str, list[_OpenRequest]], key: str, request: _OpenRequest) -> None:
+def _pull[K](stacks: dict[K, list[_OpenRequest]], key: K, request: _OpenRequest) -> None:
     stack = stacks.get(key)
     if stack is not None and request in stack:
         stack.remove(request)
@@ -1082,13 +1218,22 @@ def _pull(stacks: dict[str, list[_OpenRequest]], key: str, request: _OpenRequest
 
 
 class _Pairer:
-    """Open requests per correlation key / thread (stacks, so nested calls pair inside out)."""
+    """Open requests, found again by correlation key, by the thread they ran on, or (weakest) by method + path.
+
+    Stacks everywhere, so nested calls pair inside out. A response is matched with, in order of trust:
+    1. a shared key (request id, trace id, GUID, ``[id]``)       → high confidence;
+    2. the call open on its thread, when the response carries no key → medium (flagged uncertain);
+    3. the only open call to the same method + path, no key/thread  → low (flagged uncertain).
+    A response that names a key nobody opened is never guessed onto another request: it is kept as an orphan.
+    """
 
     def __init__(self, limit: int) -> None:
         self._limit = limit
         self._seq = 0
         self._by_key: dict[str, list[_OpenRequest]] = {}
-        self._by_thread: dict[str, list[_OpenRequest]] = {}
+        self._by_thread: dict[str, list[_OpenRequest]] = {}  # requests without a key, paired by thread
+        self._by_worker: dict[str, list[_OpenRequest]] = {}  # every request, by the thread it ran on
+        self._by_target: dict[tuple[str, str], list[_OpenRequest]] = {}
         self._open: dict[int, _OpenRequest] = {}  # insertion order = age
         self._done: list[Transaction] = []
 
@@ -1101,31 +1246,41 @@ class _Pairer:
         elif info.kind == "response":
             self._response(line, text, info)
         else:
-            request = self._find(info)
+            request, _how, _confidence = self._find(info)
             if request is not None and len(request.lines) < MAX_TRANSACTION_LINES - 1:  # room for the response
                 request.lines.append(line)
 
     def finish(self) -> list[Transaction]:
         for request in list(self._open.values()):
-            self._close(request, None, "", None)
+            self._close(request, None, "", None, ("", "high"))
         return sorted(self._done, key=lambda t: (t.request_line, t.response_line or 0))
 
     def _full(self) -> bool:
         return len(self._done) + len(self._open) >= self._limit
 
-    def _find(self, info: _LineInfo) -> _OpenRequest | None:
+    def _find(self, info: _LineInfo) -> tuple[_OpenRequest | None, str, str]:
+        """The open request answered by (or owning) a line, how it was found, and how far to trust that."""
         for key in info.keys:
             stack = self._by_key.get(key)
             if stack:
-                return stack[-1]
-        stack = self._by_thread.get(info.thread) if info.thread else None
-        return stack[-1] if stack else None
+                return stack[-1], "key", "high"
+        if info.keys:  # it names an id nobody opened: don't guess another request for it
+            return None, "", ""
+        if info.thread:
+            stack = self._by_thread.get(info.thread) or self._by_worker.get(info.thread)
+            if stack:
+                return stack[-1], "thread", "medium"
+        if info.method and info.path:
+            candidates = self._by_target.get((info.method, info.path), [])
+            if len(candidates) == 1:  # several look alike → ambiguous → no guess
+                return candidates[0], "target", "low"
+        return None, "", ""
 
     def _request(self, line: int, text: str, info: _LineInfo) -> None:
         if self._full():
             return
         if len(self._open) >= MAX_OPEN_REQUESTS:
-            self._close(next(iter(self._open.values())), None, "", None)
+            self._close(next(iter(self._open.values())), None, "", None, ("", "high"))
         self._seq += 1
         request = _OpenRequest(self._seq, line, info, parse_line_time(text))
         self._open[request.seq] = request
@@ -1133,29 +1288,56 @@ class _Pairer:
             _push(self._by_key, key, request)
         if request.thread:
             _push(self._by_thread, request.thread, request)
+        if request.worker:
+            _push(self._by_worker, request.worker, request)
+        if request.method and request.path:
+            _push(self._by_target, (request.method, request.path), request)
 
     def _response(self, line: int, text: str, info: _LineInfo) -> None:
-        request = self._find(info)
+        request, how, confidence = self._find(info)
+        if request is not None and request.style == "kv" and how != "key" and not (info.method and info.path):
+            if len(request.lines) < MAX_TRANSACTION_LINES - 1:  # a trace step (Operation=…, Status=200) of the call
+                request.lines.append(line)
+            return
         conflict = (
             request is not None
+            and how != "key"
+            and bool(request.method and info.method)
+            and (request.method, request.path) != (info.method, info.path)
+        ) or (
+            request is not None
+            and how == "key"
             and bool(request.method and info.method)
             and (request.method, request.path) != (info.method, info.path)
         )
         if request is not None and not conflict:
-            self._close(request, line, text, info)
-        elif info.method and not self._full():  # self-contained: "GET /x responded 200 in 5 ms"
+            self._close(request, line, text, info, (how, confidence))
+        elif info.method and not self._full() and info.kind == "response" and request is None and not info.keys:
+            # self-contained: "GET /x responded 200 in 5 ms"
             self._done.append(
-                Transaction(
-                    info.label, line, line, info.method, info.path, info.status, info.duration_ms, (line,), info.thread
-                )
-            )
+                Transaction(info.label, line, line, info.method, info.path, info.status, info.duration_ms, (line,),
+                            info.thread, "inline", "high", info.form)
+            )  # fmt: skip
+        elif ((info.method and info.path) or info.keys or info.explicit) and not self._full():
+            # a response whose request is unknown (rotated away, other file, logged without an id): keep it visible
+            self._done.append(
+                Transaction(info.label, line, line, info.method, info.path, info.status, info.duration_ms, (line,),
+                            info.thread, "orphan", "low", info.form)
+            )  # fmt: skip
 
-    def _close(self, request: _OpenRequest, line: int | None, text: str, info: _LineInfo | None) -> None:
+    def _close(
+        self, request: _OpenRequest, line: int | None, text: str, info: _LineInfo | None, matched: tuple[str, str]
+    ) -> None:
+        how, confidence = matched
         del self._open[request.seq]
         for key in request.keys:
             _pull(self._by_key, key, request)
         if request.thread:
             _pull(self._by_thread, request.thread, request)
+        if request.worker:
+            _pull(self._by_worker, request.worker, request)
+        if request.method and request.path:
+            _pull(self._by_target, (request.method, request.path), request)
         duration = info.duration_ms if info is not None else None
         if line is not None:
             request.lines.append(line)
@@ -1173,7 +1355,10 @@ class _Pairer:
                 status=info.status if info is not None else None,
                 duration_ms=duration,
                 all_lines=tuple(request.lines),
-                thread=request.thread,
+                thread=request.worker,
+                match=how if line is not None else "",
+                confidence=confidence if line is not None else "high",
+                form=request.form,
             )
         )
 

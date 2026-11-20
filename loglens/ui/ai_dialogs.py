@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import html
 import threading
+from typing import ClassVar
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, SignalInstance
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -16,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
@@ -24,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.ai import credentials
-from ..core.ai.claude import AIError, missing_dependency
+from ..core.ai.claude import SECRET_LABELS, AIError, missing_dependency
 from ..core.ai.config import (
     ALWAYS_REDACTED,
     DEFAULT_LOCAL_URLS,
@@ -38,6 +41,8 @@ from ..core.ai.config import (
 )
 from ..core.ai.explain import ExplainRequest
 from ..core.ai.local import list_models
+from ..core.ai.status import STATUS_LABELS, ProviderStatus, TestResult
+from ..core.ai.validation import preflight
 from ..services.ai_service import AIService, secret_name
 from ..services.analysis_jobs import AnalysisRunner, Progress, Task
 
@@ -49,6 +54,11 @@ REDACTION_LABELS: dict[Redact, str] = {
     Redact.HOSTNAMES: "Host / domain names",
     Redact.GUIDS: "GUIDs / correlation IDs",
 }
+CLOUD_CREDENTIALS_NOTE = (
+    "LogLens does not store Google Cloud or AWS credentials: they stay with gcloud / the AWS CLI (or the "
+    "GOOGLE_APPLICATION_CREDENTIALS file). To sign them out, run: gcloud auth application-default revoke "
+    "(Google) or aws sso logout (AWS)."
+)
 PRIVACY_NOTE = (
     "Nothing is sent automatically. Only when you click <b>Explain</b>, the selected line and its surrounding lines "
     "are sent to the provider below — after redaction, and (if enabled) after you have seen a preview."
@@ -96,9 +106,14 @@ class AISettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self._on_provider_changed()
+        self._status = ProviderStatus.NOT_TESTED
+        self._tested_signature: tuple[object, ...] | None = None
+        for signal in self._settings_signals():
+            signal.connect(self._invalidate_status)
+        self._invalidate_status()
 
     # ---- groups --------------------------------------------------------------------------------------------------
-    def _connection_group(self, config: AIConfig) -> QGroupBox:
+    def _connection_group(self, config: AIConfig) -> QGroupBox:  # noqa: PLR0915 - one statement per settings control
         group = QGroupBox("Connection", self)
         form = QFormLayout(group)
         self.provider = QComboBox(group)
@@ -138,6 +153,15 @@ class AISettingsDialog(QDialog):
             for label, widget in rows:
                 form.addRow(label, widget)
         self._local_rows(form, config, group)
+        self.forget_button = QPushButton("Remove all saved credentials…", group)
+        self.forget_button.setToolTip("Delete every API key LogLens has stored in Windows Credential Manager")
+        self.forget_button.clicked.connect(self._forget_all)
+        form.addRow("", self.forget_button)
+        self.cloud_note = QLabel(CLOUD_CREDENTIALS_NOTE, group)
+        self.cloud_note.setObjectName("dialogNote")
+        self.cloud_note.setWordWrap(True)
+        self.cloud_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("", self.cloud_note)
         self.env_note = QLabel("Uses ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN or an `ant auth login` profile.", group)
         self.env_note.setObjectName("dialogNote")
         form.addRow("", self.env_note)
@@ -159,6 +183,7 @@ class AISettingsDialog(QDialog):
         test.clicked.connect(self._test)
         self.test_result = QLabel(group)
         self.test_result.setWordWrap(True)
+        self.test_result.setTextFormat(Qt.TextFormat.RichText)
         test_row = QHBoxLayout()
         test_row.addWidget(test)
         test_row.addWidget(self.test_result, 1)
@@ -318,6 +343,7 @@ class AISettingsDialog(QDialog):
             for _label, widget in rows:
                 self._form.setRowVisible(widget, platform is provider)
         self._form.setRowVisible(self.env_note, provider is Provider.ENVIRONMENT)
+        self._form.setRowVisible(self.cloud_note, provider in {Provider.VERTEX, Provider.BEDROCK})
         local = provider is Provider.LOCAL
         for local_widget in self.local_rows:
             self._form.setRowVisible(local_widget, local)
@@ -351,28 +377,135 @@ class AISettingsDialog(QDialog):
         self._refresh_key_state()
 
     def _remove_key(self) -> None:
+        """Delete the key of the selected provider from Windows Credential Manager (and check that it is gone)."""
+        name = secret_name(self.config())
         try:
-            credentials.delete_secret(secret_name(self.config()))
+            removed = credentials.delete_secrets([name])
         except OSError as exc:
             self.key_state.setText(f"Could not remove: {exc}")
             return
+        self.api_key.clear()
         self._refresh_key_state()
+        if removed:
+            self.key_state.setText("✓ The saved key was deleted from Windows Credential Manager.")
+        self._invalidate_status()
+
+    def _forget_all(self) -> None:
+        """Delete EVERY credential LogLens has saved (after asking), then verify that nothing is left."""
+        try:
+            present = credentials.saved_secrets(SECRET_LABELS)
+        except OSError as exc:
+            QMessageBox.warning(self, "Saved credentials", f"Could not read Windows Credential Manager: {exc}")
+            return
+        if not present:
+            QMessageBox.information(self, "Saved credentials", "LogLens has no saved credentials.")
+            return
+        listing = "\n".join(f"  • {SECRET_LABELS[name]}" for name in present)
+        answer = QMessageBox.warning(
+            self,
+            "Remove saved credentials",
+            f"Delete these from Windows Credential Manager?\n\n{listing}\n\nYou will have to paste the key(s) again "
+            "to use that provider. This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            removed = credentials.delete_secrets(present)
+            left = credentials.saved_secrets(SECRET_LABELS)
+        except OSError as exc:
+            QMessageBox.warning(self, "Saved credentials", f"Could not remove everything: {exc}")
+            self._refresh_key_state()
+            return
+        self.api_key.clear()
+        self._refresh_key_state()
+        self._invalidate_status()
+        if left:
+            QMessageBox.warning(self, "Saved credentials", f"Still stored: {', '.join(SECRET_LABELS[n] for n in left)}")
+        else:
+            self.key_state.setText(f"✓ Removed {len(removed)} saved credential(s) from Windows Credential Manager.")
+
+    # ---- status: always the result of real validation, never a remembered "OK" ---------------------------------------
+    STATUS_COLORS: ClassVar[dict[ProviderStatus, str]] = {
+        ProviderStatus.CONNECTED: "#2e8b57",
+        ProviderStatus.NOT_TESTED: "#8a8a8a",
+        ProviderStatus.NOT_CONFIGURED: "#8a8a8a",
+        ProviderStatus.INCOMPLETE: "#c08a00",
+    }
+
+    def _settings_signals(self) -> list[SignalInstance]:
+        """Every control whose value changes what a connection would do."""
+        widgets = [
+            self.provider, self.model, self.aws_region, self.gcp_project, self.gcp_region, self.foundry_resource,
+            self.local_api, self.local_url, self.local_model, self.local_remote, self.compatibility, self.api_key,
+        ]  # fmt: skip
+        out: list[SignalInstance] = []
+        for widget in widgets:
+            for name in ("currentTextChanged", "textChanged", "toggled"):
+                signal = getattr(widget, name, None)
+                if signal is not None:
+                    out.append(signal)
+                    break
+        return out
+
+    def _signature(self) -> tuple[object, ...]:
+        config = self.config()
+        return (config.provider, config.model, config.aws_region, config.gcp_project, config.gcp_region,
+                config.foundry_resource, config.local_api, config.local_url, config.local_model,
+                config.local_allow_remote, config.compatibility_mode, hash(self.api_key.text()))  # fmt: skip
+
+    def _typed_or_saved_key(self) -> str | None:
+        typed = self.api_key.text().strip()
+        if typed:
+            return typed
+        try:
+            return credentials.load_secret(secret_name(self.config()))
+        except OSError:
+            return None
+
+    def _show_status(self, status: ProviderStatus, message: str = "") -> None:
+        self._status = status
+        color = self.STATUS_COLORS.get(status, "#c0504d")
+        detail = f" — {html.escape(message)}" if message else ""
+        self.test_result.setText(f"<span style='color:{color}'>● <b>{STATUS_LABELS[status]}</b></span>{detail}")
+
+    def _invalidate_status(self, *_args: object) -> None:
+        """A setting changed: a past result no longer says anything about the new settings."""
+        self._tested_signature = None
+        problem = preflight(self.config(), self._typed_or_saved_key())
+        if problem is not None:
+            self._show_status(problem.status, problem.message)
+        else:
+            self._show_status(ProviderStatus.NOT_TESTED, "click Test connection to verify these settings.")
+
+    @property
+    def status(self) -> ProviderStatus:
+        return self._status
 
     def _test(self) -> None:
-        self.test_result.setText("Testing…")
+        problem = preflight(self.config(), self._typed_or_saved_key())
+        if problem is not None:  # nothing to ask the provider yet
+            self._show_status(problem.status, problem.message)
+            return
+        self._tested_signature = self._signature()
+        self._show_status(ProviderStatus.NOT_TESTED, "testing…")
         self._service.test_connection(self.config(), api_key=self.api_key.text().strip() or None)
 
-    def _on_tested(self, ok: bool, message: str, compatibility_needed: bool) -> None:
-        if compatibility_needed:
-            self.compatibility.setChecked(True)
-        self.test_result.setText(("✓ " if ok else "⚠ ") + message)
+    def _on_tested(self, result: TestResult) -> None:
+        if self._tested_signature is None or self._tested_signature != self._signature():
+            return  # the settings changed while the test ran: its answer is about something else now
+        if result.compatibility_needed:
+            self.compatibility.setChecked(True)  # (re-triggers invalidation: that is a changed setting)
+            self._tested_signature = self._signature()
+        self._show_status(result.status, result.message)
 
     # ---- lifetime: the service outlives the dialog ---------------------------------------------------------------
     def _listen(self, on: bool) -> None:
         if on and not self._listening:
-            self._service.connectionTested.connect(self._on_tested)
+            self._service.testResult.connect(self._on_tested)
         elif not on and self._listening:
-            self._service.connectionTested.disconnect(self._on_tested)
+            self._service.testResult.disconnect(self._on_tested)
         self._listening = on
 
     def showEvent(self, event: QShowEvent) -> None:

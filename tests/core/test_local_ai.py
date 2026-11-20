@@ -60,6 +60,9 @@ class FakeServer(BaseHTTPRequestHandler):
             if body["model"] == "missing":
                 self._send(404, b'{"error": "model not found"}')
                 return
+            if body.get("stream") is False:  # a non-streaming request (the connection test): one JSON answer
+                self._send(200, json.dumps({"message": {"content": "OK"}, "done": True}).encode())
+                return
             lines = [json.dumps({"message": {"content": p}, "done": False}) for p in pieces]
             lines.append(
                 json.dumps({"message": {"content": ""}, "done": True, "prompt_eval_count": 50, "eval_count": 9})
@@ -68,6 +71,9 @@ class FakeServer(BaseHTTPRequestHandler):
         elif self.path == "/v1/chat/completions":
             if FakeServer.reject_schema and "response_format" in body:
                 self._send(400, b'{"error": "response_format not supported"}')
+                return
+            if body.get("stream") is not True:
+                self._send(200, json.dumps({"choices": [{"message": {"content": "OK"}}]}).encode())
                 return
             events = [f"data: {json.dumps({'choices': [{'delta': {'content': p}}]})}\n\n" for p in pieces]
             self._send(200, ("".join(events) + "data: [DONE]\n\n").encode(), "text/event-stream")
@@ -117,7 +123,7 @@ def test_unstructured_answer_and_errors(server: str) -> None:
         LocalProvider(_config(server, model="missing")).explain(REQUEST)
     with pytest.raises(AIError, match="not installed"):
         LocalProvider(_config(server, model="other")).test_connection()
-    with pytest.raises(AIError, match="Can't reach"):
+    with pytest.raises(AIError, match="can't reach"):
         list_models(_config("http://127.0.0.1:9"))
     with pytest.raises(AIError, match="Choose a local model"):
         LocalProvider(_config(server, model=""))

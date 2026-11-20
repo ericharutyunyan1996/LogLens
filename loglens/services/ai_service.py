@@ -12,6 +12,8 @@ from ..core.ai.claude import API_KEY_SECRET, FOUNDRY_KEY_SECRET, AIError
 from ..core.ai.config import AIConfig, Provider
 from ..core.ai.explain import ExplainRequest, Explanation
 from ..core.ai.providers import AIProvider, make_provider
+from ..core.ai.status import ProviderStatus, TestResult, scrub
+from ..core.ai.validation import key_warning
 from .jobs import JobSlot, start_worker
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,7 @@ class _Signals(QObject):
     progress = Signal(int, str)  # generation, phase message
     failed = Signal(int, str)  # generation, message
     tested = Signal(bool, str, bool)  # ok, message, compatibility mode was needed
+    result = Signal(object)  # TestResult
 
 
 class AIService(QObject):
@@ -39,6 +42,7 @@ class AIService(QObject):
     finished = Signal(object)  # Explanation
     failed = Signal(str)
     connectionTested = Signal(bool, str, bool)  # ok, message, compatibility mode was needed
+    testResult = Signal(object)  # TestResult: the status of the provider as configured right now
 
     def __init__(self, factory: ProviderFactory = _default_factory, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -50,6 +54,7 @@ class AIService(QObject):
         self._signals.progress.connect(self._on_progress)
         self._signals.failed.connect(self._on_failed)
         self._signals.tested.connect(self.connectionTested)
+        self._signals.result.connect(self.testResult)
 
     @property
     def busy(self) -> bool:
@@ -83,21 +88,30 @@ class AIService(QObject):
         self._busy = False
 
     def test_connection(self, config: AIConfig, api_key: str | None = None) -> None:
-        """Check credentials/model with a tiny request; ``api_key`` overrides the stored key (unsaved edits)."""
+        """Validate the settings and make one tiny REAL request to the configured provider (credentials, authorization
+        and model are all exercised). ``api_key`` overrides the stored key (unsaved edits). The outcome arrives as a
+        :class:`TestResult` on ``testResult`` (and the older ``connectionTested``)."""
         signals, factory = self._signals, self._factory
 
+        def finish(result: TestResult) -> None:
+            signals.result.emit(result)
+            signals.tested.emit(result.ok, result.message, result.compatibility_needed)
+
         def work() -> None:
+            key: str | None = None
             try:
-                provider = factory(config, api_key or _load_key(config))
+                key = api_key or _load_key(config)
+                provider = factory(config, key)
                 model = provider.test_connection()
                 needed = provider.compatibility_used and not config.compatibility_mode
-                note = " Your AI gateway needs compatibility mode — it has been switched on." if needed else ""
-                signals.tested.emit(True, f"Connected — {model} answered.{note}", needed)
+                note = " Your AI gateway needs compatibility mode: it has been switched on." if needed else ""
+                finish(TestResult(ProviderStatus.CONNECTED, f"{model} answered.{note}", model, needed))
             except AIError as exc:
-                signals.tested.emit(False, str(exc), False)
+                hint = key_warning(config, key) if exc.status is ProviderStatus.AUTH_FAILED else ""
+                finish(TestResult(exc.status, str(exc) + hint))
             except Exception as exc:
                 log.exception("AI connection test failed")
-                signals.tested.emit(False, f"Unexpected error: {exc}", False)
+                finish(TestResult(ProviderStatus.ERROR, scrub(f"Unexpected error: {exc}")))
 
         start_worker("ai-test", work)
 

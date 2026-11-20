@@ -321,12 +321,31 @@ _LEVEL_FIELD = r"""(?:level|Level|LEVEL|severity|Severity|lvl|@l|LogLevel|loglev
 _HEADER = r"^[\d\-/.:,TZ+ ]{8,40}(?:[AP]M)?[\s,|;]*(?:\[[^\]]{0,24}\]\s*)?[|,;]?\s*"
 
 
+# Every severity word a record header can carry (not only the ones the level chips count): INFO / OFF / NOTICE … are
+# severities too. When the header names one, that is THE level of the record; words in the message ("EventLogLevel:
+# Error", "Processing types: New, Failed") say nothing about it.
+_ANY_LEVEL_CAPS = (
+    "FATAL|FTL|CRITICAL|CRIT|EMERG|EMERGENCY|ALERT|SEVERE|ERROR|ERR|EROR|FAILED|FAILURE|FAIL|WARNING|WARN|WRN|NOTICE|"
+    "INFORMATION|INFORMATIONAL|INFO|INF|DEBUG|DBG|TRACE|TRC|VERBOSE|VRB|FINEST|FINER|FINE|CONFIG|OFF|NONE|ALL"
+)
+_ANY_LEVEL_TITLE = _ANY_LEVEL_CAPS.title()  # "Fatal|Ftl|…": the capitalised spelling some layouts use
+# A level word in the header: after a leading timestamp (+ optional thread), or as the very first token (Python's
+# "WARNING:root:…", "[ERROR] …"). The optional "[" lets "[INFO]" through.
+_FIRST_TOKEN_END = r"[\])>:\s|]"
+_HEADER_LEVEL = (
+    rf"(?:{_HEADER}\[?(?:{_ANY_LEVEL_CAPS}|{_ANY_LEVEL_TITLE})\b|^\s*[\[(<]?(?:{_ANY_LEVEL_CAPS}){_FIRST_TOKEN_END})"
+)
+# Prefix for every "level word somewhere in the line" alternative: valid only when the line has no header level.
+_NO_HEADER_LEVEL = rf"^(?!{_HEADER_LEVEL})(?s:.*?)"
+
+
 def _level_rule(caps: str, words: str, mel_prefix: str) -> str:
-    """Regex for one severity: CAPS tokens | level field | capitalised header word | MEL prefix."""
-    return (
-        rf"{_TOKEN}(?:{caps})\b|{_LEVEL_FIELD}(?:{words}|{words.title()}|{caps})\b|{_HEADER}(?:{words.title()})\b"
-        rf"|^(?:{mel_prefix}): "
-    )
+    """Regex for one severity, header first: the level in the record header decides; only a line without one
+    (continuation lines, free text, structured logs) falls back to CAPS tokens, level fields and MEL prefixes."""
+    own_header = rf"{_HEADER}\[?(?:{caps}|{words.title()})\b|^\s*[\[(<]?(?:{caps}){_FIRST_TOKEN_END}"
+    caps_token = rf"{_NO_HEADER_LEVEL}{_TOKEN}(?:{caps})\b"
+    level_field = rf"{_NO_HEADER_LEVEL}{_LEVEL_FIELD}(?:{words}|{words.title()}|{caps})\b"
+    return rf"{own_header}|{caps_token}|{level_field}|^(?:{mel_prefix}): "
 
 
 def default_rules() -> list[HighlightRule]:
@@ -343,7 +362,7 @@ def default_rules() -> list[HighlightRule]:
         HighlightRule(
             "Error",
             _level_rule("ERROR|ERR|EROR|FAILED|FAILURE|FAIL", "error|failed|failure", "fail")
-            + r"|[A-Za-z]Exception\b|^Exception\b",
+            + rf"|{_NO_HEADER_LEVEL}[A-Za-z]Exception\b|^Exception\b",
             case_sensitive=True,
             bg="#40F04040",
             scrollbar_mark=True,
