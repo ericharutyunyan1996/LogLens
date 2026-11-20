@@ -5,15 +5,13 @@
 > offline first, with an optional AI assistant.
 > This file is the working plan: phases have checklists, tick them as we go.
 
-**Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
+**Status:** v0.3.0 is released (see the hand-off note below); v0.1.0 was the first release (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
-> **Hand-off (resume point):** v0.2.0 is released; everything after it is committed and pushed (HEAD: WSL/SSH sources). Done: Phases 10-13,
-> Phase 14 personal-data scan and Sysmon / PowerShell / Task Scheduler explanations, 9.6 WSL/SSH, 9.7 receivers, 9.9 .gz opening. The local 0.2.0 MSI built from before 9.6 is what the user installed and is testing.
-> Still open: Phase 14 performance counters overlay and ForwardedEvents (WEF); 9.4 SMB (UNC paths open already, no saved
-> credentials / rotation-safe polling yet); 9.8 Azure Monitor / CloudWatch (Loki + Elasticsearch done); 9.9 .zst + index cache; digests for
-> containers (event-log digests of this computer or a server work: `digest --events System [--server NAME]`). Gate: ruff check/format, `mypy loglens`, `pytest` (1570 passed) via `.venv\Scripts\python.exe`.
-> Release (version bump + tag) only when the user asks.
+> **Hand-off (resume point):** v0.3.0 is released (tag v0.3.0; the workflow builds the signed MSI). Everything through Phase 13, most of
+> Phase 14 and Phase 9 (except below) is done. Still open: performance counters overlay, ForwardedEvents (WEF), SMB saved
+> credentials + rotation-safe polling (9.4), Azure Monitor / CloudWatch (9.8), .zst + index cache (9.9), container digests.
+> Gate: ruff check/format, `mypy loglens`, `pytest` via `.venv\Scripts\python.exe`.
 
 **Contents**
 1. [Vision](#1-vision) — who it is for and the problems it solves

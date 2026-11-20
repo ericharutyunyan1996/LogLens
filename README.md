@@ -6,8 +6,9 @@
 
 **Read any log. Understand it fast. Keep it private.**
 
-A fast log viewer and analyzer for Windows: huge files, live tail, powerful filters, Windows Event Log correlation,
-an offline knowledge base that explains errors, and an optional AI assistant that can run **entirely on your own computer**.
+A fast log viewer and analyzer for Windows: huge files, live tail, powerful filters, Windows Event Logs of many servers,
+Docker / Kubernetes / WSL / SSH sources, an offline knowledge base that explains errors, and an optional AI assistant
+that can run **entirely on your own computer**.
 
 [![Release](https://img.shields.io/github/v/release/ericharutyunyan1996/LogLens?style=flat-square)](https://github.com/ericharutyunyan1996/LogLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
@@ -41,15 +42,58 @@ what the haystack means, without sending your data anywhere unless you choose to
 | <img src="docs/images/columns-view.png" width="440"> | **Columns view.** Any log becomes a sortable table of parsed fields (25+ formats detected automatically, or define your own). |
 | <img src="docs/images/analyze-patterns.png" width="440"> | **Understand a whole log.** Message patterns, field value counts, SQL over parsed records, compare two logs, request/response pairs, HTTP statistics. |
 | <img src="docs/images/windows-events.png" width="440"> | **Windows Event Log correlation.** Read channels or `.evtx` files, follow events live, and see what Windows logged around any line. |
-| | **Other servers and containers.** `File → Servers…` adds Windows servers whose Event Viewer logs are read remotely, in parallel, on one timeline (this Windows account or credentials kept in Credential Manager; nothing is installed on the server). `File → Containers & Kubernetes…` opens live logs of Docker containers and Kubernetes pods through your own `docker` and `kubectl`. |
 | <img src="docs/images/ai-answer.png" width="440"> | **Optional AI, private by design.** Claude, or a **local model through Ollama** where nothing leaves your computer. You see and edit a redacted preview before anything is sent. |
 | <img src="docs/images/mask-secrets.png" width="440"> | **Mask secrets** with one click, so you can share your screen or screenshots safely. |
+
+## New in 0.3.0
+
+**Read logs from everywhere, not just files**
+
+| Source | Where | How it signs in |
+|---|---|---|
+| Windows servers (Event Viewer) | `File → Servers…`, then pick them in *Open Windows Event Logs* | your Windows account, or credentials kept in Windows Credential Manager. Nothing is installed on the server |
+| Docker containers, Kubernetes pods | `File → Containers & Kubernetes…` | your own `docker` / `kubectl` setup (minikube, kind, cloud clusters) |
+| WSL distributions, Linux hosts | `File → WSL & Linux hosts…` | `wsl.exe`, or `ssh.exe` with your keys (never a password) |
+| Syslog (UDP / TCP) and HTTP pushes | `File → Receive logs…` | listens on this computer only unless you choose otherwise |
+| Grafana Loki, Elasticsearch / OpenSearch | `File → Log platforms…` | optional token, kept in Credential Manager |
+| `.gz` archives | just open them | unpacked once into a cache |
+
+**Understand a log faster** (all under the *Analyze* menu)
+
+- **Summary**: errors, the first error, the most frequent ones, busiest and quietest periods, slowest requests and
+  *what to look at first*, with clickable line numbers. Save it as Markdown.
+- **Unusual**: bursts, kinds of message that appear late and repeat, silences.
+- **Ask in plain words** (`Ctrl+Shift+A`): "errors in the last hour but not timeouts" becomes a filter you can see and edit.
+  Offline, no AI needed.
+- **Charts**: counts, averages and percentiles of any field or number over time; save definitions, export a picture.
+- **Trace an id across logs** (`Ctrl+Shift+T`): one trace / request id through every open log as a waterfall.
+- **Compare two runs side by side**: an aligned diff that ignores timestamps, numbers and ids.
+- **Script**: Python over the open log, read-only and time-limited. **Personal data scan**: e-mails, checksum-verified card
+  numbers, IBANs, phone numbers, IPs and secrets, reported with masked examples.
+
+**Work as a team and automate**
+
+- **Incident builder**: pin lines from any logs, label them (trigger, symptom, root cause, fix), add notes, export a report.
+- **Team knowledge folder** (a share or a Git repository) with runbooks that open from the Inspector.
+- **Share-safe copy**: the whole log with secrets masked and users, IPs, hosts and e-mails replaced by consistent pseudonyms.
+- **Command line** for scripts, CI and scheduled tasks (works from the installed `LogLens.exe`):
+
+  ```
+  LogLens.exe summary app.log --fail-on-errors
+  LogLens.exe diagnose --since 6h [--server NAME]
+  LogLens.exe digest C:\logs --events System --webhook https://hooks.example/x --only-if-news
+  LogLens.exe schedule --daily 08:00 -- C:\logs --webhook https://hooks.example/x
+  ```
+
+  Digests report only what is new since the last run and can post to Slack / Teams / any JSON webhook or e-mail.
+- **Plugins**: add formats, analyzers and sources with a small Python file. Every plugin is approved by you first
+  ([how to write one](docs/plugins/README.md)).
 
 ## Install
 
 1. Download `LogLens-<version>.msi` from the [latest release](https://github.com/ericharutyunyan1996/LogLens/releases/latest).
 2. Double-click it, pick an install folder (or keep the default), and finish.
-3. Open any `.log`, `.txt` or `.evtx`: right-click, **Open with LogLens**, or drag it onto the window.
+3. Open any `.log`, `.txt`, `.gz` or `.evtx`: right-click, **Open with LogLens**, or drag it onto the window.
 
 Silent install for IT: `msiexec /i LogLens-<version>.msi /qn`. Newer versions upgrade older ones in place.
 
@@ -82,7 +126,8 @@ Silent install for IT: `msiexec /i LogLens-<version>.msi /qn`. Newer versions up
 - **AI (optional, opt-in)**: Claude via API key, environment, Bedrock, Vertex or Foundry — or a **local model**
   (Ollama, LM Studio, llama.cpp) where nothing leaves the computer; redacted, editable preview before anything is
   sent; live progress and Cancel; explain lines, records or the top patterns; save answers to your knowledge base.
-- **Share**: export lines as text / CSV / JSON Lines, incident reports (Markdown / HTML, redacted).
+- **Share**: export lines as text / CSV / JSON Lines, incident reports (Markdown / HTML, redacted), share-safe copies
+  with pseudonyms, summaries and personal-data reports as Markdown.
 
 <details>
 <summary><b>For developers: run from source, build the installer</b></summary>
