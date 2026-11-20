@@ -148,6 +148,8 @@ class MainWindow(QMainWindow):
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
+        self.knowledge.set_team_dir(settings.team_kb_dir, announce=False)
+        self.knowledge.teamChanged.connect(lambda path: setattr(self.settings, "team_kb_dir", path))
         self._told_about_tray = False
         self.watch = WatchController(settings, self)
         self._build_actions()

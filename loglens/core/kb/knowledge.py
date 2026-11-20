@@ -23,12 +23,14 @@ ORIGIN_BUILTIN = "builtin"  # shipped with LogLens (builtin.toml)
 ORIGIN_USER = "user"  # written by the user
 ORIGIN_AI = "ai"  # an AI answer the user saved
 ORIGIN_IMPORTED = "imported"  # imported from a shared knowledge pack
+ORIGIN_TEAM = "team"  # read from the team knowledge folder (shared, read-only)
 USER_ORIGINS = (ORIGIN_USER, ORIGIN_AI, ORIGIN_IMPORTED)  # entries that live in the user's knowledge base
 ORIGIN_LABELS = {
     ORIGIN_BUILTIN: "LogLens knowledge base",
     ORIGIN_USER: "Your knowledge base",
     ORIGIN_AI: "AI answer you saved",
     ORIGIN_IMPORTED: "Imported knowledge pack",
+    ORIGIN_TEAM: "Team knowledge folder",
 }
 
 
@@ -51,6 +53,7 @@ class KBEntry:
     codes: tuple[int, ...] = ()
     patterns: tuple[re.Pattern[str], ...] = ()
     origin: str = "builtin"
+    runbook: str = ""  # a link or a file of the team folder: "when you see this, follow …"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], origin: str = "builtin") -> KBEntry:
@@ -69,6 +72,7 @@ class KBEntry:
             codes=tuple(int(c, 16) for c in data.get("codes", ())),
             patterns=tuple(re.compile(p, re.IGNORECASE) for p in data.get("patterns", ())),
             origin=origin,
+            runbook=str(data.get("runbook", "")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -87,6 +91,8 @@ class KBEntry:
             data["causes"] = list(self.causes)
         if self.steps:
             data["steps"] = list(self.steps)
+        if self.runbook:
+            data["runbook"] = self.runbook
         return data
 
     def matches_event(self, provider: str, event_id: int) -> bool:
@@ -118,6 +124,7 @@ class Finding:
     noise: str = "normal"
     source: str = ORIGIN_LABELS[ORIGIN_BUILTIN]  # where the explanation comes from, for display
     origin: str = ORIGIN_BUILTIN  # ORIGIN_* of the KB entry behind it
+    runbook: str = ""
 
     @classmethod
     def from_entry(cls, entry: KBEntry, kind: str, matched: str) -> Finding:
@@ -132,6 +139,7 @@ class Finding:
             entry.noise,
             source=source,
             origin=entry.origin,
+            runbook=entry.runbook,
         )
 
 

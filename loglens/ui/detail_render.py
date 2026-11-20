@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from ..core.ai.explain import Explanation
 from ..core.kb import Finding
@@ -171,6 +172,12 @@ def render_findings(findings: list[Finding], palette: Palette) -> str:
         if finding.steps:
             items = "".join(f"<li>{html.escape(step)}</li>" for step in finding.steps)
             body.append(f'<p style="margin:4px 0 0 0;color:{palette.muted};">What to do</p><ol>{items}</ol>')
+        if finding.runbook:
+            link = quote(finding.runbook, safe="")
+            body.append(
+                f'<p style="margin:6px 0 0 0;"><a href="runbook:{link}" style="color:{palette.accent};">'
+                "Open the runbook</a></p>"
+            )
         body.append(
             f'<p style="margin:2px 0 0 0;color:{palette.muted};font-size:8pt;">'
             f"matched “{html.escape(finding.matched)}” · {html.escape(finding.source)}</p>"

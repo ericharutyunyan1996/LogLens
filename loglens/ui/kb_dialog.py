@@ -93,6 +93,7 @@ class KnowledgeDialog(QDialog):
         tabs = QTabWidget(self)
         tabs.addTab(self._entries_page(), "Your entries")
         tabs.addTab(self._queue_page(), "Not explained yet")
+        tabs.addTab(self._team_page(), "Team folder")
         tabs.addTab(self._builtin_page(), f"Built-in ({len(default_kb().entries)})")
         layout = QVBoxLayout(self)
         layout.addWidget(tabs)
@@ -127,6 +128,75 @@ class KnowledgeDialog(QDialog):
         layout.addLayout(row)
         layout.addWidget(note)
         return page
+
+    def _team_page(self) -> QWidget:
+        page = QWidget(self)
+        note = QLabel(
+            "A folder your team shares (a network share or a Git repository) with knowledge packs (*.toml) and "
+            "runbooks. Its entries appear in the Inspector between the built-in ones and yours, and an entry's "
+            "runbook opens from there. LogLens only reads the folder.",
+            page,
+        )
+        note.setWordWrap(True)
+        note.setObjectName("dialogNote")
+        self.team_path = QLineEdit(page)
+        self.team_path.setReadOnly(True)
+        self.team_path.setPlaceholderText("No team folder chosen")
+        buttons = []
+        for text, slot in (("Choose folder…", self._team_choose), ("Reload", self._team_reload),
+                           ("Pull (git)", self._team_pull), ("Turn off", self._team_off)):  # fmt: skip
+            button = QPushButton(text, page)
+            button.clicked.connect(slot)
+            buttons.append(button)
+        self.team_pull_button = buttons[2]
+        row = QHBoxLayout()
+        row.addWidget(self.team_path, 1)
+        for button in buttons:
+            row.addWidget(button)
+        self.team_status = QLabel("", page)
+        self.team_status.setWordWrap(True)
+        self.team_entries = _tree(["Title", "Pack", "Runbook"], page)
+        layout = QVBoxLayout(page)
+        layout.addWidget(note)
+        layout.addLayout(row)
+        layout.addWidget(self.team_status)
+        layout.addWidget(self.team_entries, 1)
+        self._team_refresh()
+        return page
+
+    def _team_refresh(self, message: str = "") -> None:
+        team = self.service.team
+        self.team_path.setText(str(team.folder) if team is not None else "")
+        self.team_pull_button.setEnabled(self.service.team_is_git)
+        self.team_entries.clear()
+        if team is None:
+            self.team_status.setText(message)
+            return
+        for entry in team.entries:
+            self.team_entries.addTopLevelItem(QTreeWidgetItem([entry.title, entry.origin, entry.runbook]))
+        problems = f"<br>⚠ {'<br>⚠ '.join(p.replace('<', '&lt;') for p in team.problems[:8])}" if team.problems else ""
+        self.team_status.setText(
+            f"{message + ' ' if message else ''}<b>{len(team.entries)} entries</b> from {len(team.packs)} packs."
+            + problems
+        )
+
+    def _team_choose(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Team knowledge folder", self.service.team_dir or "")
+        if folder:
+            self.service.set_team_dir(folder)
+            self._team_refresh()
+
+    def _team_reload(self) -> None:
+        self.service.reload_team()
+        self._team_refresh("Reloaded.")
+
+    def _team_pull(self) -> None:
+        _ok, message = self.service.pull_team()
+        self._team_refresh(f"git: {message}")
+
+    def _team_off(self) -> None:
+        self.service.set_team_dir("")
+        self._team_refresh()
 
     def _queue_page(self) -> QWidget:
         page = QWidget(self)

@@ -6,8 +6,10 @@ AI (explanation on request). The panel only renders; the owning tab supplies dat
 
 from __future__ import annotations
 
+from urllib.parse import unquote
+
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QFont, QGuiApplication
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -377,3 +379,8 @@ class Inspector(QWidget):
             QGuiApplication.clipboard().setText(self._sections[int(value)].body)
         elif scheme == "line" and value.isdigit():
             self.lineRequested.emit(int(value) - 1)
+        elif scheme == "runbook":
+            target = unquote(value)  # a web address or a file of the team folder (checked by the knowledge service)
+            QDesktopServices.openUrl(
+                QUrl(target) if target.startswith(("http://", "https://")) else QUrl.fromLocalFile(target)
+            )

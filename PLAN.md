@@ -9,8 +9,8 @@
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
 > **Hand-off (resume point):** v0.2.0 (remote servers, Docker/Kubernetes, Diagnose a server) is committed, pushed and tagged
-> (release workflow builds the signed MSI). **Phases 10 and 11 are done** (Summary, Unusual, plain words; Charts, Trace, Compare runs). Next: **Phase 12** (incident builder, shared KB / runbooks,
-> share-safe copy), then Phases 13, 14, then the Phase 9 leftovers (9.4, 9.6-9.9). Quality gate: `.venv\Scripts\python.exe -m ruff
+> (release workflow builds the signed MSI). **Phases 10, 11 and 12 are done** (Summary, Unusual, plain words; Charts, Trace, Compare runs; Incident, Team knowledge folder + runbooks,
+> share-safe copy). Next: **Phase 13** (scripting console, plugins, scheduled digests + CLI), then Phase 14, then the Phase 9 leftovers (9.4, 9.6-9.9). Quality gate: `.venv\Scripts\python.exe -m ruff
 > check/format`, `mypy loglens`, `pytest`. Commit per finished phase; release (version bump + tag) only when the user asks.
 
 **Contents**
@@ -493,7 +493,7 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 
 ### Phase 12 — Work as a team
 - [x] **Incident builder**: pin lines to a timeline with notes and labels, export a report (extends bookmarks).
-- [ ] **Shared knowledge base** from a team folder or Git, with **runbooks** ("when you see X, check Y") linked to entries.
+- [x] **Shared knowledge base** from a team folder or Git, with **runbooks** ("when you see X, check Y") linked to entries.
 - [x] **Share-safe copy** of a whole log with consistent pseudonyms for users, IPs and hosts.
 
 ### Phase 13 — Automate and extend
