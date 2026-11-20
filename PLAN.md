@@ -8,10 +8,15 @@
 **Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
-> **Hand-off (resume point):** v0.2.0 (remote servers, Docker/Kubernetes, Diagnose a server) is committed, pushed and tagged
-> (release workflow builds the signed MSI). **Phases 10, 11 and 12 are done** (Summary, Unusual, plain words; Charts, Trace, Compare runs; Incident, Team knowledge folder + runbooks,
-> share-safe copy). Next: **Phase 13** (scripting console, plugins, scheduled digests + CLI), then Phase 14, then the Phase 9 leftovers (9.4, 9.6-9.9). Quality gate: `.venv\Scripts\python.exe -m ruff
-> check/format`, `mypy loglens`, `pytest`. Commit per finished phase; release (version bump + tag) only when the user asks.
+> **Hand-off (resume point):** v0.2.0 is released. Done and committed since: Phases 10, 11, 12, and in Phase 13 the CLI + digests
+> and the Script page. In progress: **plugins** (Phase 13): `core/plugins.py` + `tests/core/test_plugins.py` are done; the UI is
+> written but NOT wired: `loglens/ui/plugins_dialog.py` (uncommitted) and the main-window patch script
+> `scratchpad/patch_plugins.py` (adds `plugins_dir`, `plugin_logs_dir`, `Settings.plugin_enabled`, Analyze > Plugins menu,
+> `reload_plugins`, `open_plugins`, `run_plugin_analyzer`, `open_plugin_source`; still needed: a `reapply_formats()` method that
+> calls `set_extra_formats(self._custom_formats())` on every tab, imports of `Analyzer`/`Source`/`Background`/`AnalysisScope`/
+> `iter_lines`, `reload_plugins()` at startup, a UI test, docs `docs/plugins.md`). Then Phase 14 (performance counters, Sysmon/
+> PowerShell/Defender sources, personal-data scan), then Phase 9 leftovers (9.4, 9.6-9.9). Gate: `.venv\Scripts\python.exe -m ruff
+> check/format`, `mypy loglens`, `pytest`. Release (version bump + tag) only when the user asks.
 
 **Contents**
 1. [Vision](#1-vision) — who it is for and the problems it solves
