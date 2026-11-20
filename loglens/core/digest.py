@@ -10,7 +10,7 @@ import glob
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .text_source import TextLogSource
@@ -130,6 +130,57 @@ def build(patterns: list[str], state: dict[str, int], *, now: datetime | None = 
                 else "",
                 [(p.count, p.template[:140]) for p in result.problem_patterns[:TOP]],
                 total - start > MAX_NEW_LINES,
+            )
+        )
+    return digest
+
+
+def build_events(
+    channels: list[str],
+    state: dict[str, int],
+    *,
+    server: object | None = None,
+    reader: object | None = None,
+    now: datetime | None = None,
+    first_period: timedelta = timedelta(hours=24),
+) -> Digest:
+    """Digest of Windows events (errors and warnings) of this computer or ``server`` since the last digest.
+
+    ``state`` remembers, per channel, the time (epoch seconds) up to which events were reported; the first run looks
+    back ``first_period``.
+    """
+    from collections import Counter  # noqa: PLC0415
+
+    from .winevent.reader import EventLogError, EventQuery, read_events  # noqa: PLC0415
+
+    read = reader or read_events
+    moment = now or datetime.now().astimezone()
+    digest = Digest(moment)
+    where = getattr(server, "name", "") or "this computer"
+    for channel in channels:
+        key = f"event:{where}:{channel}"
+        since = datetime.fromtimestamp(state[key]).astimezone() if key in state else moment - first_period
+        query = EventQuery(channel, since=since, until=moment, levels=(1, 2, 3), max_events=20_000, server=server)  # type: ignore[arg-type]
+        label = f"{where}: {channel}"
+        try:
+            events = list(read(query))  # type: ignore[operator]
+        except EventLogError as exc:
+            digest.problems.append(f"{label}: {exc}")
+            continue
+        state[key] = int(moment.timestamp())
+        errors = [e for e in events if e.level in (1, 2)]
+        counts = Counter(f"{e.provider} ({e.event_id})" for e in errors)
+        first = min(errors, key=lambda e: e.time_created, default=None)
+        digest.files.append(
+            FileDigest(
+                label,
+                len(events),
+                len(errors),
+                len(events) - len(errors),
+                f"{first.time_created:%H:%M:%S} {first.provider} ({first.event_id}): {first.text()[:140]}"
+                if first
+                else "",
+                [(n, name) for name, n in counts.most_common(TOP)],
             )
         )
     return digest

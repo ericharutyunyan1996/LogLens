@@ -12,7 +12,7 @@
 > Phase 14 personal-data scan and Sysmon / PowerShell / Task Scheduler explanations, 9.6 WSL/SSH, 9.7 receivers, 9.9 .gz opening. The local 0.2.0 MSI built from before 9.6 is what the user installed and is testing.
 > Still open: Phase 14 performance counters overlay and ForwardedEvents (WEF); 9.4 SMB (UNC paths open already, no saved
 > credentials / rotation-safe polling yet); 9.8 cloud connectors; 9.9 .zst + index cache; digests for
-> servers and containers. Gate: ruff check/format, `mypy loglens`, `pytest` (1570 passed) via `.venv\Scripts\python.exe`.
+> containers (event-log digests of this computer or a server work: `digest --events System [--server NAME]`). Gate: ruff check/format, `mypy loglens`, `pytest` (1570 passed) via `.venv\Scripts\python.exe`.
 > Release (version bump + tag) only when the user asks.
 
 **Contents**

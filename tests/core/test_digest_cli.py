@@ -204,3 +204,31 @@ def test_is_cli_and_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.is_cli(["loglens", "summary", "x"])
     assert not cli.is_cli(["loglens", "C:\\a.log"]) and not cli.is_cli(["loglens"])
     assert run("--version") == 0 and "LogLens" in capsys.readouterr().out
+
+
+def test_event_digest_counts_errors_and_remembers_the_time(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    from loglens.core.winevent.models import EventRecord
+    from loglens.core.winevent.reader import EventLogError, EventQuery
+
+    asked: list[EventQuery] = []
+
+    def reader(query: EventQuery):
+        asked.append(query)
+        if query.channel == "Security":
+            raise EventLogError("Access is denied")
+        when = datetime(2026, 11, 13, 10, 0, tzinfo=UTC)
+        yield EventRecord("System", "Service Control Manager", 7031, 2, when, message="service crashed")
+        yield EventRecord("System", "Service Control Manager", 7031, 2, when, message="service crashed again")
+        yield EventRecord("System", "Disk", 51, 3, when, message="paging error")
+
+    state: dict[str, int] = {}
+    digest = digest_module.build_events(["System", "Security"], state, reader=reader)
+    assert digest.errors == 2 and digest.warnings == 1 and "Service Control Manager (7031)" in digest.render()
+    assert any("Access is denied" in p for p in digest.problems) and "event:this computer:System" in state
+    assert "event:this computer:Security" not in state  # a channel that failed is retried next time
+    digest_module.build_events(["System"], state, reader=reader)
+    assert asked[-1].since is not None and asked[-1].since.timestamp() == pytest.approx(
+        state["event:this computer:System"], abs=5
+    )

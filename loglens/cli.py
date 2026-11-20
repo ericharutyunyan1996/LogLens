@@ -84,7 +84,15 @@ def parser() -> argparse.ArgumentParser:
     common(d)
 
     g = sub.add_parser("digest", help="what is new since the last digest in some logs; optionally send it")
-    g.add_argument("paths", nargs="+", help="log files, folders or globs")
+    g.add_argument("paths", nargs="*", help="log files, folders or globs")
+    g.add_argument(
+        "--events",
+        action="append",
+        default=[],
+        metavar="CHANNEL",
+        help="Windows event log channel (repeatable), e.g. System",
+    )
+    g.add_argument("--server", help="read --events from a server saved in LogLens (File → Servers)")
     g.add_argument("--state", help="file that remembers what was reported (default: in %%LOCALAPPDATA%%\\LogLens)")
     g.add_argument("--webhook", help="https URL to post the digest to (Slack, Teams, …)")
     g.add_argument("--mail-to", action="append", default=[], help="recipient (repeatable)")
@@ -160,7 +168,22 @@ def _mail_settings(args: argparse.Namespace) -> notify.MailSettings:
 def cmd_digest(args: argparse.Namespace) -> int:
     state_path = Path(args.state) if args.state else _default_state()
     state = digest_module.load_state(state_path)
+    if not args.paths and not args.events:
+        print("loglens: give log files or folders, or --events CHANNEL.", file=sys.stderr)
+        return EXIT_ERROR
     digest = digest_module.build(args.paths, state)
+    if args.events:
+        server = None
+        if args.server:
+            from .settings import Settings
+
+            server = next((s for s in Settings.load().servers() if s.name.lower() == args.server.lower()), None)
+            if server is None:
+                print(f"loglens: no saved server named '{args.server}'.", file=sys.stderr)
+                return EXIT_ERROR
+        extra = digest_module.build_events(args.events, state, server=server)
+        digest.files += extra.files
+        digest.problems += extra.problems
     text = digest.render(args.title)
     if not args.no_mask:
         masker = SecretMasker()
