@@ -496,3 +496,26 @@ def test_charts_page_draws_counts_and_values(window, wait_for: Callable[..., Non
     page.resize(700, 500)
     assert not page.chart_view.grab().isNull()
     analysis.shutdown()
+
+
+# ---- trace dialog ---------------------------------------------------------------------------------------------------
+def test_trace_dialog_follows_an_id_across_open_logs(window, wait_for: Callable[..., None]) -> None:
+    from loglens.ui.trace_dialog import TraceDialog, candidate_ids
+
+    win, shop, _other = window
+    assert candidate_ids(["x traceId=abc123def456 y"]) == ["abc123def456"]
+    jumped: list[tuple[object, int]] = []
+    dialog = TraceDialog(win.all_tabs, lambda tab, line: jumped.append((tab, line)), "order", None, win)
+    dialog.run()  # "order" appears in two lines of the shop log only
+    wait_for(lambda: dialog.trace is not None)
+    trace = dialog.trace
+    assert trace is not None and len(trace.lanes) == 1 and trace.event_count == 2
+    assert dialog.events.topLevelItemCount() == 2 and "2 events" in dialog.status.text()
+    dialog.events.itemDoubleClicked.emit(dialog.events.topLevelItem(0), 0)
+    assert jumped and jumped[0][0] is shop
+    dialog.id_box.setCurrentText("zzz-not-there")
+    dialog.trace = None
+    dialog.run()
+    wait_for(lambda: dialog.trace is not None)
+    assert "not found" in dialog.status.text()
+    dialog.search.deleteLater()

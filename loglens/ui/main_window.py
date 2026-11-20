@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
         self._event_followers: dict[str, EventLogFollower] = {}
         self._streamers: dict[str, ContainerStreamer] = {}
         self._diagnosis: DiagnoseDialog | None = None
+        self._trace_dialog: QDialog | None = None
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
@@ -435,6 +436,7 @@ class MainWindow(QMainWindow):
         kb = self.analyze_menu.addAction("&Knowledge base…", self.open_knowledge_base)
         kb.setShortcut("Ctrl+Shift+K")
         self.analyze_menu.addAction("&Diagnose a computer…", self.open_diagnosis)
+        self.analyze_menu.addAction("&Trace an id across logs…", self.open_trace, "Ctrl+Shift+T")
         ask = self.analyze_menu.addAction("&Ask in plain words…", self.ask_in_plain_words)
         ask.setShortcut("Ctrl+Shift+A")
         self.watch_menu = mb.addMenu("&Watch")
@@ -680,6 +682,23 @@ class MainWindow(QMainWindow):
         self.settings.add_recent(path)
         self._refresh_recent()
         self._update_ui()
+        tab.main_view.setFocus()
+
+    def open_trace(self) -> None:
+        """Follow the id on the selected line (or a typed one) through every open log."""
+        from .trace_dialog import TraceDialog, candidate_ids  # noqa: PLC0415 - dialog module only needed on demand
+
+        tab = self.current_tab()
+        ids = candidate_ids(tab.selected_texts()) if tab is not None else []
+        dialog = TraceDialog(self.all_tabs, self.show_line_in_tab, ids[0] if ids else "", ids, self)
+        dialog.show()
+        self._trace_dialog = dialog
+        if ids:
+            dialog.run()
+
+    def show_line_in_tab(self, tab: LogTab, line: int) -> None:
+        self.tabs.setCurrentWidget(tab)
+        tab.main_view.go_to_row(line)
         tab.main_view.setFocus()
 
     def ask_in_plain_words(self) -> None:
