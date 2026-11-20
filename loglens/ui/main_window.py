@@ -73,6 +73,7 @@ from .welcome_page import WelcomePage
 
 if TYPE_CHECKING:
     from .diagnose_dialog import DiagnoseDialog
+    from .rundiff_dialog import RunDiffDialog
 
 log = logging.getLogger(__name__)
 LOG_FILTER = (
@@ -140,6 +141,7 @@ class MainWindow(QMainWindow):
         self._streamers: dict[str, ContainerStreamer] = {}
         self._diagnosis: DiagnoseDialog | None = None
         self._trace_dialog: QDialog | None = None
+        self._rundiff: RunDiffDialog | None = None
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
@@ -437,6 +439,7 @@ class MainWindow(QMainWindow):
         kb.setShortcut("Ctrl+Shift+K")
         self.analyze_menu.addAction("&Diagnose a computer…", self.open_diagnosis)
         self.analyze_menu.addAction("&Trace an id across logs…", self.open_trace, "Ctrl+Shift+T")
+        self.analyze_menu.addAction("Compare two &runs side by side…", self.open_rundiff)
         ask = self.analyze_menu.addAction("&Ask in plain words…", self.ask_in_plain_words)
         ask.setShortcut("Ctrl+Shift+A")
         self.watch_menu = mb.addMenu("&Watch")
@@ -683,6 +686,16 @@ class MainWindow(QMainWindow):
         self._refresh_recent()
         self._update_ui()
         tab.main_view.setFocus()
+
+    def open_rundiff(self) -> None:
+        from .rundiff_dialog import RunDiffDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        if self._rundiff is None:
+            self._rundiff = RunDiffDialog(self.all_tabs, self.show_line_in_tab, self)
+        self._rundiff.refresh()
+        self._rundiff.show()
+        self._rundiff.raise_()
+        self._rundiff.activateWindow()
 
     def open_trace(self) -> None:
         """Follow the id on the selected line (or a typed one) through every open log."""

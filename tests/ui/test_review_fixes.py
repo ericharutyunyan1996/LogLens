@@ -519,3 +519,29 @@ def test_trace_dialog_follows_an_id_across_open_logs(window, wait_for: Callable[
     wait_for(lambda: dialog.trace is not None)
     assert "not found" in dialog.status.text()
     dialog.search.deleteLater()
+
+
+# ---- compare two runs -------------------------------------------------------------------------------------------------
+def test_rundiff_dialog_compares_two_open_logs(window, wait_for: Callable[..., None]) -> None:
+    from loglens.ui.rundiff_dialog import RunDiffDialog
+
+    win, shop, other = window
+    shown: list[tuple[object, int]] = []
+    dialog = RunDiffDialog(win.all_tabs, lambda tab, line: shown.append((tab, line)), win)
+    dialog.good.setCurrentIndex(dialog.good.findData(shop))
+    dialog.bad.setCurrentIndex(dialog.bad.findData(other))
+    dialog.run()
+    wait_for(lambda: dialog.diff is not None)
+    diff = dialog.diff
+    assert diff is not None and not diff.identical
+    assert dialog.tree.topLevelItemCount() >= 1 and "only in" in dialog.status.text()
+    first = next(
+        i
+        for i in range(dialog.tree.topLevelItemCount())
+        if dialog.tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
+    )
+    dialog._jump(dialog.tree.topLevelItem(first), 1)
+    assert shown
+    dialog.good.setCurrentIndex(dialog.bad.currentIndex())
+    dialog.run()
+    assert "different" in dialog.status.text()

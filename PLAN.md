@@ -9,8 +9,8 @@
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
 > **Hand-off (resume point):** v0.2.0 (remote servers, Docker/Kubernetes, Diagnose a server) is committed, pushed and tagged
-> (release workflow builds the signed MSI). **Phase 10 is done** (Summary, Unusual, Ask in plain words). Next: **Phase 11** (charts from any field, trace view, compare two runs),
-> then Phases 12, 13, 14, then the Phase 9 leftovers (9.4, 9.6-9.9). Quality gate: `.venv\Scripts\python.exe -m ruff
+> (release workflow builds the signed MSI). **Phases 10 and 11 are done** (Summary, Unusual, plain words; Charts, Trace, Compare runs). Next: **Phase 12** (incident builder, shared KB / runbooks,
+> share-safe copy), then Phases 13, 14, then the Phase 9 leftovers (9.4, 9.6-9.9). Quality gate: `.venv\Scripts\python.exe -m ruff
 > check/format`, `mypy loglens`, `pytest`. Commit per finished phase; release (version bump + tag) only when the user asks.
 
 **Contents**
@@ -487,9 +487,9 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
       timeline.
 
 ### Phase 11 — See it visually
-- [ ] **Charts from any field**: counts, percentiles, averages over time; saved chart definitions; export as an image.
-- [ ] **Trace view**: one trace id across services and servers as a waterfall, built on the request / response pairs.
-- [ ] **Compare two runs side by side** (good run vs bad run): aligned diff of two logs or two time ranges.
+- [x] **Charts from any field**: counts, percentiles, averages over time; saved chart definitions; export as an image.
+- [x] **Trace view**: one trace id across services and servers as a waterfall, built on the request / response pairs.
+- [x] **Compare two runs side by side** (good run vs bad run): aligned diff of two logs or two time ranges.
 
 ### Phase 12 — Work as a team
 - [ ] **Incident builder**: pin lines to a timeline with notes and labels, export a report (extends bookmarks).
