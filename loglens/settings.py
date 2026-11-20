@@ -12,6 +12,7 @@ from .core.formats import CustomFormat, CustomFormatError
 from .core.highlight import HighlightRule, default_rules
 from .core.packs import PackError, SavedFilter
 from .core.watch import AlertRule, WatchProfile, default_alert_rules
+from .core.winevent.remote import ServerProfile
 from .paths import settings_file
 
 log = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class Settings:
     run_in_tray: bool = False
     watched_services: list[str] = field(default_factory=list)
     custom_format_list: list[dict] = field(default_factory=list)
+    server_list: list[dict] = field(default_factory=list)  # other Windows servers (no passwords here)
 
     # ---- convenience ---------------------------------------------------------------------------------------------
     def rules(self) -> list[HighlightRule]:
@@ -92,6 +94,14 @@ class Settings:
 
     def set_watch_profiles(self, profiles: list[WatchProfile]) -> None:
         self.watch_profile_list = [p.to_dict() for p in profiles]
+
+    def servers(self) -> list[ServerProfile]:
+        """The saved servers (entries that are no longer valid, e.g. hand-edited, are skipped)."""
+        found = (ServerProfile.from_dict(data) for data in self.server_list if isinstance(data, dict))
+        return [profile for profile in found if profile is not None]
+
+    def set_servers(self, servers: list[ServerProfile]) -> None:
+        self.server_list = [s.to_dict() for s in servers]
 
     def custom_formats(self) -> list[CustomFormat]:
         out = []

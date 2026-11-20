@@ -29,6 +29,14 @@ def log_file() -> Path:
     return log_dir() / "loglens.log"
 
 
+def container_logs_dir() -> Path:
+    """Where Docker / Kubernetes log captures are written (machine-local, not roaming)."""
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home() / ".cache")
+    path = Path(base) / "LogLens" / "containers"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def event_exports_dir() -> Path:
     """Where Windows Event Log exports are written (machine-local, not roaming)."""
     base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home() / ".cache")

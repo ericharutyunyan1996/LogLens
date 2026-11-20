@@ -1,6 +1,6 @@
 [project]
 name = "loglens"
-version = "0.1.2"
+version = "0.2.0"
 description = "Fast log viewer & analyzer for Windows: huge files, live tail, payload decoding, Event Log correlation"
 readme = "README.md"
 license = "MIT"

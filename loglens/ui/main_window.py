@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import datetime
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import (
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from .. import APP_NAME, __version__
 from ..core.bundles import BundleFile
+from ..core.containers import LogSource
 from ..core.elevation import elevation_is_safe, is_admin, relaunch_elevated
 from ..core.encoding import KNOWN_ENCODINGS
 from ..core.formats import FormatError, LogFormat
@@ -45,7 +47,8 @@ from ..core.highlight import HighlightRule
 from ..core.timeline import TimelineSource
 from ..core.websearch import query_parts
 from ..core.winevent.reader import EventQuery
-from ..paths import event_exports_dir
+from ..paths import container_logs_dir, event_exports_dir
+from ..services.container_jobs import ContainerStreamer, capture_path
 from ..services.eventlog_jobs import EventLogExporter, EventLogFollower
 from ..services.knowledge_service import KnowledgeService
 from ..services.log_document import MarkSummary
@@ -67,6 +70,9 @@ from .theme import THEMES, apply_theme, is_dark, style_sheet
 from .watch_controller import WatchController
 from .web_search_dialog import WebSearchDialog
 from .welcome_page import WelcomePage
+
+if TYPE_CHECKING:
+    from .diagnose_dialog import DiagnoseDialog
 
 log = logging.getLogger(__name__)
 LOG_FILTER = (
@@ -128,7 +134,8 @@ class MainWindow(QMainWindow):
         self._ai_busy = False
         self._analysis: dict[int, AnalysisWindow] = {}
         self._event_followers: dict[str, EventLogFollower] = {}
-        self._diagnosis: QDialog | None = None
+        self._streamers: dict[str, ContainerStreamer] = {}
+        self._diagnosis: DiagnoseDialog | None = None
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
@@ -184,6 +191,16 @@ class MainWindow(QMainWindow):
             icon="events",
         )
         self.act_events.setIconText("Event Logs")
+        self.act_containers = a(
+            "&Containers && Kubernetes…",
+            self.open_containers,
+            tip="Read the logs of Docker containers and Kubernetes pods (uses your docker / kubectl)",
+        )
+        self.act_servers = a(
+            "&Servers…",
+            self.open_servers,
+            tip="Other Windows servers whose Event Viewer logs LogLens can read (add, test, remove)",
+        )
         self.act_bundle = a(
             "Open &folder or zip…",
             self.open_bundle_dialog,
@@ -324,6 +341,8 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&File")
         m.addAction(self.act_open)
         m.addAction(self.act_events)
+        m.addAction(self.act_servers)
+        m.addAction(self.act_containers)
         m.addAction(self.act_bundle)
         self.recent_menu = m.addMenu("Open &recent")
         m.addAction(self.act_reload)
@@ -412,7 +431,7 @@ class MainWindow(QMainWindow):
         self.analyze_menu.addSeparator()
         kb = self.analyze_menu.addAction("&Knowledge base…", self.open_knowledge_base)
         kb.setShortcut("Ctrl+Shift+K")
-        self.analyze_menu.addAction("&Diagnose this computer…", self.open_diagnosis)
+        self.analyze_menu.addAction("&Diagnose a computer…", self.open_diagnosis)
         self.watch_menu = mb.addMenu("&Watch")
         self.watch_menu.aboutToShow.connect(lambda: self.watch.fill_menu(self.watch_menu))
         self.watch.fill_menu(self.watch_menu)
@@ -478,8 +497,39 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(50, self.refresh_theme)
 
     # ---- files ---------------------------------------------------------------------------------------------------
+    def open_servers(self) -> None:
+        from .servers_dialog import ServersDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        ServersDialog(self.settings, self).exec()
+
+    def open_containers(self) -> None:
+        from .containers_dialog import ContainersDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        dialog = ContainersDialog(self)
+        if not exec_dialog(dialog):
+            return
+        for source in dialog.sources():
+            self._stream_container(source)
+
+    def _stream_container(self, source: LogSource) -> None:
+        """Capture ``source``'s log stream into a file and open it (live while the process keeps running)."""
+        target = capture_path(container_logs_dir(), source, f"{datetime.now():%Y%m%d-%H%M%S}")
+        streamer = ContainerStreamer(source, target, self)
+        key = str(target.resolve()).lower()
+        self._streamers[key] = streamer
+        streamer.failed.connect(lambda message: self._container_failed(source, message))
+        if source.follow:
+            streamer.started.connect(lambda: self.open_live(str(target)))
+        else:
+            streamer.ended.connect(lambda: self.open_file(str(target)))
+        streamer.start()
+
+    def _container_failed(self, source: LogSource, message: str) -> None:
+        self.statusBar().showMessage(f"{source.title}: {message}", 15000)
+        QMessageBox.warning(self, APP_NAME, f"{source.title}\n\n{message}")
+
     def open_event_logs(self) -> None:
-        dialog = EventLogDialog(self)
+        dialog = EventLogDialog(self, self.settings.servers())
         if not exec_dialog(dialog):
             return
         queries = dialog.queries()
@@ -632,6 +682,7 @@ class MainWindow(QMainWindow):
 
         if self._diagnosis is None:
             self._diagnosis = DiagnoseDialog(self.knowledge, self.open_lines, self.open_file, self)
+        self._diagnosis.set_servers(self.settings.servers())
         self._diagnosis.show()
         self._diagnosis.raise_()
         self._diagnosis.activateWindow()
@@ -786,6 +837,10 @@ class MainWindow(QMainWindow):
             if follower is not None:
                 follower.stop()
                 follower.deleteLater()
+            streamer = self._streamers.pop(str(Path(tab.document.path).resolve()).lower(), None)
+            if streamer is not None:
+                streamer.stop()
+                streamer.deleteLater()
             analysis = self._analysis.pop(id(tab), None)
             if analysis is not None:
                 analysis.shutdown()  # cancel running analyses of the closing tab
@@ -1079,6 +1134,8 @@ class MainWindow(QMainWindow):
             return
         if self.watch.tray is not None:
             self.watch.tray.hide()
+        for streamer in self._streamers.values():
+            streamer.stop()  # do not leave docker / kubectl processes running after the app closes
         self.settings.window_geometry = _to_base64(self.saveGeometry())
         self.settings.window_state = _to_base64(self.saveState())
         try:

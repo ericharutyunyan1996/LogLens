@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,7 +15,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from ..core.fileio import open_shared
 from ..core.winevent.models import EventRecord, record_from_line
-from ..core.winevent.reader import EventLogError, EventQuery, merge_timeline, read_events
+from ..core.winevent.reader import EventLogError, EventQuery, ServerUnavailableError, merge_timeline, read_events
 from .jobs import JobSlot, start_worker
 
 log = logging.getLogger(__name__)
@@ -28,7 +29,8 @@ FOLLOW_BATCH = 5_000  # new events read per channel per poll
 LINE_TIME_RESOLUTION = timedelta(milliseconds=1)
 TAIL_BLOCK_BYTES = 64 * 1024  # the end of an export is read backwards in blocks of this size
 EventReader = Callable[[EventQuery], Iterable[EventRecord]]
-EventKey = tuple[str, int]  # (channel, record id)
+EventKey = tuple[str, str, int]  # (server, channel, record id): record ids repeat from server to server
+MAX_PARALLEL_SOURCES = 6  # this computer and servers are read side by side, at most this many at once
 PollResult = tuple[list[EventRecord], list[str], dict[EventKey, datetime] | None]
 
 
@@ -63,22 +65,41 @@ class EventLogExporter(QObject):
         start_worker("eventlog-export", work)
 
     def _export(self, queries: Sequence[EventQuery], target: Path, cancel: threading.Event) -> None:
-        """Worker thread: read every query, then write the merged timeline (or report why not)."""
+        """Worker thread: read every query (each server on its own thread), then write the merged timeline."""
+        groups: dict[str, list[EventQuery]] = {}
+        for query in queries:
+            groups.setdefault(_source(query), []).append(query)
+
+        def read_group(group: list[EventQuery]) -> tuple[list[list[EventRecord]], list[str]]:
+            out: list[list[EventRecord]] = []
+            problems: list[str] = []
+            for query in group:
+                label = f"{query.server.name}: {query.channel}" if query.server is not None else query.channel
+
+                def report(count: int, label: str = label) -> None:
+                    self.progress.emit(label, count)
+
+                try:
+                    out.append(list(read_events(query, cancel, progress=report)))
+                except (
+                    ServerUnavailableError
+                ) as exc:  # the whole server is out of reach: do not retry its other channels
+                    problems.append(str(exc))
+                    break
+                except EventLogError as exc:
+                    problems.append(str(exc))
+                if cancel.is_set():
+                    break
+            return out, problems
+
         streams: list[list[EventRecord]] = []
         warnings: list[str] = []
-        for query in queries:
-
-            def report(count: int, channel: str = query.channel) -> None:
-                self.progress.emit(channel, count)
-
-            try:
-                events = list(read_events(query, cancel, progress=report))
-            except EventLogError as exc:
-                warnings.append(str(exc))
-                continue
-            streams.append(events)
-            if cancel.is_set():
-                return
+        with ThreadPoolExecutor(max_workers=max(1, min(len(groups), MAX_PARALLEL_SOURCES))) as pool:
+            for read, problems in pool.map(read_group, groups.values()):
+                streams.extend(read)
+                warnings.extend(problems)
+        if cancel.is_set():
+            return
         if not streams:
             self.failed.emit("; ".join(warnings) or "No events could be read.")
             return
@@ -91,6 +112,11 @@ class EventLogExporter(QObject):
             self.failed.emit(f"Could not write {target}: {exc}")
             return
         self.finished.emit(str(target), warnings)
+
+
+def _source(query: EventQuery) -> str:
+    """Which machine a query reads from ("" = this computer): the unit of parallelism and of "this one is down"."""
+    return query.server.name if query.server is not None else ""
 
 
 class EventLogFollower(QObject):
@@ -181,7 +207,7 @@ class EventLogFollower(QObject):
             self.failed.emit("; ".join(warnings))
         if not events:
             return
-        self._seen.update({(e.channel, e.record_id): e.time_created for e in events})
+        self._seen.update({(e.server, e.channel, e.record_id): e.time_created for e in events})
         newest = max(e.time_created for e in events)
         # The next query starts at ``newest`` (inclusive, millisecond precision): only events from then on come back.
         cutoff = newest - LINE_TIME_RESOLUTION
@@ -211,9 +237,15 @@ def _poll_once(
         seen = seen | written.keys()
     streams: list[list[EventRecord]] = []
     warnings: list[str] = []
+    down: set[str] = set()  # servers that could not be connected to: not asked again for their other channels
     for query in queries:
+        if _source(query) in down:
+            continue
         try:
-            streams.append([e for e in reader(query) if (e.channel, e.record_id) not in seen])
+            streams.append([e for e in reader(query) if (e.server, e.channel, e.record_id) not in seen])
+        except ServerUnavailableError as exc:
+            warnings.append(str(exc))
+            down.add(_source(query))
         except EventLogError as exc:
             warnings.append(str(exc))
     events = merge_timeline(streams)
@@ -245,7 +277,7 @@ def _written_since(target: Path, since: datetime) -> dict[EventKey, datetime]:
                     continue
                 if record.time_created < cutoff:
                     return found
-                found[record.channel, record.record_id] = record.time_created
+                found[record.server, record.channel, record.record_id] = record.time_created
             end = start
     return found
 

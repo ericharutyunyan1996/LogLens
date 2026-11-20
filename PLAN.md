@@ -449,6 +449,61 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo
       exception), records a narrated video (offline TTS) and saves the README screenshots; MIT license
 - [ ] Update check (needs a release host)
 
+### Phase 9 — More places to read logs from — *in progress*
+Goal: install LogLens once, add your servers and containers, and read all their logs from one place, merged on one timeline.
+Everything is agentless: it uses what is already on the machines (the Windows Event Log API, SMB, `docker`, `kubectl`, `ssh.exe`).
+- [x] **9.1 Server list** (`File → Servers…`): name, host, sign-in (this Windows account / credentials saved per server);
+      passwords only in Windows Credential Manager (`LogLens/server:<name>`), never in settings or logs; **Test** makes a real
+      connection and reports name / port / sign-in / read access / channels found, with the fix for each failure (firewall
+      rule "Remote Event Log Management", `Event Log Readers` group, wrong password, host not found, timeout).
+- [x] **9.2 Remote Windows Event Logs**: a remote session for every query (channel list, events, message templates from the
+      *server's* publishers), many servers in parallel, one merged timeline with the server on every line, progress and
+      cancel, a failing server never hides the others.
+- [x] **9.3 Remote live follow** of event channels and **Diagnose a server** (the recipes run on its events).
+- [ ] **9.4 Server files over SMB**: open / merge / follow log files and folders on `\\server\share` (IIS, application
+      logs) with the saved credentials, including rotation-safe live tail by polling.
+- [x] **9.5 Docker and Kubernetes** (through the user's own `docker` and `kubectl`: contexts, kubeconfig and `minikube` /
+      `kind` clusters just work): pick containers or pods (namespaces, containers, previous / crashed instance), live follow,
+      time and tail limits, timestamps kept, one live tab per source (merging several tabs is the existing timeline merge).
+      No credentials are stored by LogLens. Verified against Docker Desktop and a `kind` cluster.
+- [ ] 9.6 **WSL and Linux hosts**: `wsl.exe` and `ssh.exe` (built into Windows) as live sources: tail files, `journalctl -f`.
+- [ ] 9.7 **Receivers**: syslog (UDP / TCP) and an HTTP endpoint, so servers and apps can push logs to LogLens.
+- [ ] 9.8 **Cloud and log platforms**: Azure Monitor / Application Insights, AWS CloudWatch Logs, Grafana Loki, Elasticsearch,
+      read through each service's own sign-in; queries limited by time and size.
+- [ ] 9.9 **Compressed logs** (`.gz`, then `.zst`) opened directly; **on-disk index cache** so a multi-GB file reopens at once.
+
+### Phase 10 — Understand a log faster
+- [ ] **Triage summary** on open: the first real error, the noisiest patterns, busiest / quietest periods, slowest requests,
+      "what to look at first" (one page, exportable).
+- [ ] **Ask in plain words**: a sentence becomes filters or SQL (local model or a configured provider; you see and edit the
+      result before it runs, nothing is sent without the usual redacted preview).
+- [ ] **Anomaly highlights**: rate spikes, new kinds of message, field-value shifts, with "started at 10:42" markers on the
+      timeline.
+
+### Phase 11 — See it visually
+- [ ] **Charts from any field**: counts, percentiles, averages over time; saved chart definitions; export as an image.
+- [ ] **Trace view**: one trace id across services and servers as a waterfall, built on the request / response pairs.
+- [ ] **Compare two runs side by side** (good run vs bad run): aligned diff of two logs or two time ranges.
+
+### Phase 12 — Work as a team
+- [ ] **Incident builder**: pin lines to a timeline with notes and labels, export a report (extends bookmarks).
+- [ ] **Shared knowledge base** from a team folder or Git, with **runbooks** ("when you see X, check Y") linked to entries.
+- [ ] **Share-safe copy** of a whole log with consistent pseudonyms for users, IPs and hosts.
+
+### Phase 13 — Automate and extend
+- [ ] **Scripting console / notebook**: SQL and Python over the open log (sandboxed, read-only on the file).
+- [ ] **Plugins** for formats, analyzers and sources (a documented, versioned interface).
+- [ ] **Scheduled digests**: watch folders, servers or containers and send a daily summary of new problems (email / Teams /
+      Slack / webhook); alert delivery to the same channels. A command-line mode (`loglens diagnose --since 1h`, report
+      generation) for scripts and CI.
+
+### Phase 14 — Windows-specific depth
+- [ ] **Performance counters** (CPU, memory, disk, network) overlaid on the log timeline, locally and from servers.
+- [ ] **More Windows sources**: Sysmon, PowerShell, Defender and Task Scheduler logs with their own explanations in the
+      knowledge base; **Windows Event Forwarding** collectors (ForwardedEvents).
+- [ ] **Personal-data scan**: find and report personal data in logs (names, e-mail addresses, card numbers, tokens) for
+      compliance reviews, with a masked export.
+
 ### Later / ideas
 Remote machines (event logs over RPC, UNC files) · CLI `loglens diagnose --profile MyApp --since 1h` · ETW sessions ·
 WER crash-dump folder viewer · plugin formats.

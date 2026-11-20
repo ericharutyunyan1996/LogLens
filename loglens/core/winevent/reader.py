@@ -8,8 +8,11 @@ import threading
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from typing import Any
 
+from . import remote
 from .models import EventRecord, parse_event_xml
+from .remote import ServerError, ServerProfile
 
 if sys.platform == "win32":
     import pywintypes
@@ -28,6 +31,10 @@ class EventLogError(Exception):
     """User-presentable failure (access denied, channel not found, …)."""
 
 
+class ServerUnavailableError(EventLogError):
+    """A remote server could not be connected to: its other channels would fail the same way, so callers skip them."""
+
+
 @dataclass(frozen=True, slots=True)
 class EventQuery:
     """What to read. Levels use Windows numbers (1 Critical, 2 Error, 3 Warning, 4 Information, 5 Verbose)."""
@@ -39,6 +46,7 @@ class EventQuery:
     levels: tuple[int, ...] = ()
     max_events: int = 20_000
     newest_first: bool = True
+    server: ServerProfile | None = None  # read another Windows server's log (None = this computer)
 
     def xpath(self) -> str:
         conditions = []
@@ -61,13 +69,14 @@ def _xpath_time(moment: datetime) -> str:
 class _MessageFormatter:
     """EvtFormatMessage with a per-provider metadata cache (opening publisher metadata is the slow part)."""
 
-    def __init__(self) -> None:
+    def __init__(self, session: object | None = None) -> None:
+        self._session: Any = session  # a remote session: message templates come from that server
         self._metadata: dict[str, object | None] = {}
 
     def format(self, provider: str, handle: object) -> str:
         if provider not in self._metadata:
             try:
-                self._metadata[provider] = win32evtlog.EvtOpenPublisherMetadata(provider)
+                self._metadata[provider] = win32evtlog.EvtOpenPublisherMetadata(provider, self._session)
             except MESSAGE_FORMAT_FAILURES:
                 self._metadata[provider] = None
         metadata = self._metadata[provider]
@@ -89,11 +98,18 @@ def read_events(
         raise EventLogError("Windows Event Logs are only available on Windows")
     flags = win32evtlog.EvtQueryFilePath if query.is_file else win32evtlog.EvtQueryChannelPath
     flags |= win32evtlog.EvtQueryReverseDirection if query.newest_first else win32evtlog.EvtQueryForwardDirection
+    session = None
+    if query.server is not None:
+        try:
+            session = remote.connect(query.server)
+        except ServerError as exc:
+            raise ServerUnavailableError(f"{query.server.name}: {exc}") from exc
     try:
-        result = win32evtlog.EvtQuery(query.channel, flags, query.xpath())
+        result = win32evtlog.EvtQuery(query.channel, flags, query.xpath(), session)
     except pywintypes.error as exc:
-        raise _friendly(exc, query.channel) from exc
-    formatter = _MessageFormatter()
+        raise _friendly(exc, query.channel, query.server) from exc
+    formatter = _MessageFormatter(session)
+    server_name = query.server.name if query.server is not None else ""
     count = 0
     while count < query.max_events:
         if cancel is not None and cancel.is_set():
@@ -101,7 +117,7 @@ def read_events(
         try:
             handles = win32evtlog.EvtNext(result, min(BATCH, query.max_events - count))
         except pywintypes.error as exc:
-            raise _friendly(exc, query.channel) from exc
+            raise _friendly(exc, query.channel, query.server) from exc
         if not handles:
             return
         for handle in handles:
@@ -112,14 +128,18 @@ def read_events(
                 log.debug("skipping unparsable event in %s", query.channel)
                 continue
             message = formatter.format(record.provider, handle).strip()
-            yield replace(record, message=message) if message else record
+            record = replace(record, message=message) if message else record
+            yield replace(record, server=server_name) if server_name else record
             count += 1
         if progress is not None:
             progress(count)
 
 
-def _friendly(exc: Exception, channel: str) -> EventLogError:
+def _friendly(exc: Exception, channel: str, server: ServerProfile | None = None) -> EventLogError:
     code = getattr(exc, "winerror", None)
+    if server is not None:  # a remote read: say which server and what to change there
+        failure = remote.explain(code, server, f"({channel}) {getattr(exc, 'strerror', exc)}")
+        return EventLogError(f"{server.name}: {failure}")
     if code == ERROR_ACCESS_DENIED:
         return EventLogError(f"Access denied to '{channel}' — this log needs LogLens to run as administrator.")
     if code in ERROR_NOT_FOUND_CODES:
@@ -127,10 +147,15 @@ def _friendly(exc: Exception, channel: str) -> EventLogError:
     return EventLogError(f"Cannot read '{channel}': {getattr(exc, 'strerror', exc)}")
 
 
-def list_channels() -> list[str]:
-    """All event channels registered on this machine (sorted, common ones first)."""
+def list_channels(server: ServerProfile | None = None) -> list[str]:
+    """All event channels registered on this machine, or on ``server`` (sorted, common ones first)."""
     if sys.platform != "win32":  # pragma: no cover
         return []
+    if server is not None:
+        try:
+            return remote.list_channels(server)
+        except ServerError as exc:
+            raise EventLogError(f"{server.name}: {exc}") from exc
     names: list[str] = []
     enumerator = win32evtlog.EvtOpenChannelEnum()
     while True:

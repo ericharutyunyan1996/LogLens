@@ -1,4 +1,4 @@
 """LogLens — fast Windows log viewer with Event Log correlation and diagnosis."""
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 APP_NAME = "LogLens"

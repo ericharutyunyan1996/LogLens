@@ -300,7 +300,7 @@ def test_event_log_dialog_needs_a_level(qapp: QApplication) -> None:
 def test_event_log_channel_listing_shows_a_wait_cursor(qapp: QApplication, monkeypatch: pytest.MonkeyPatch) -> None:
     shapes: list[object] = []
 
-    def fake_list_channels() -> list[str]:
+    def fake_list_channels(_server=None) -> list[str]:
         cursor = QApplication.overrideCursor()
         shapes.append(cursor.shape() if cursor is not None else None)
         return ["Application", "Custom/Operational"]

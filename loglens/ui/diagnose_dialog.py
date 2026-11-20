@@ -4,7 +4,7 @@ coverage warnings, and recent crash reports — each with evidence and next step
 from __future__ import annotations
 
 import html
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor
@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from ..core.diagnose import DiagnosisFinding
 from ..core.winevent.entities import extract
+from ..core.winevent.remote import ServerProfile
 from ..core.winevent.wer import WerReport
 from ..services.diagnosis_jobs import DiagnosisResult, DiagnosisRunner
 from ..services.knowledge_service import KnowledgeService
@@ -47,7 +48,7 @@ class DiagnoseDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Diagnose this computer")
+        self.setWindowTitle("Diagnose a computer")
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self.resize(1080, 680)
         self._knowledge = knowledge
@@ -61,11 +62,14 @@ class DiagnoseDialog(QDialog):
         intro = QLabel(
             "Reads the Application, System, Security and Setup event logs and looks for crash chains, unexpected "
             "restarts, failing services, installer failures, account lockouts and password guessing, IIS app-pool "
-            "failures, storage problems and recent changes. Everything stays on this computer.",
+            "failures, storage problems and recent changes. Pick a saved server to diagnose it instead (read remotely, "
+            "nothing installed on it). Nothing leaves your computer.",
             self,
         )
         intro.setObjectName("dialogNote")
         intro.setWordWrap(True)
+        self.target = QComboBox(self)  # this computer, or one of the saved servers
+        self.target.addItem("This computer", None)
         self.period = QComboBox(self)
         self.period.addItems(list(PERIODS))
         self.period.setCurrentText("Last 24 hours")
@@ -80,6 +84,7 @@ class DiagnoseDialog(QDialog):
         self.status.setObjectName("aiStatus")
         self.status.setWordWrap(True)
         top = QHBoxLayout()
+        top.addWidget(self.target)
         top.addWidget(self.period)
         top.addWidget(self.run_button)
         top.addWidget(self.progress)
@@ -128,12 +133,23 @@ class DiagnoseDialog(QDialog):
         split.setSizes([560, 520])
         return split
 
+    def set_servers(self, servers: Sequence[ServerProfile]) -> None:
+        """The computers to choose from (called when the dialog is shown: servers may have been added since)."""
+        keep = self.target.currentData()
+        self.target.clear()
+        self.target.addItem("This computer", None)
+        for server in servers:
+            self.target.addItem(f"{server.name}  ({server.host})", server)
+        index = max(0, self.target.findText(f"{keep.name}  ({keep.host})")) if keep is not None else 0
+        self.target.setCurrentIndex(index)
+        self.target.setVisible(bool(servers))
+
     # ---- running -------------------------------------------------------------------------------------------------
     def run(self) -> None:
         self.run_button.setEnabled(False)
         self.progress.show()
         self.status.setText("Reading event logs… (a few seconds; longer periods take longer)")
-        self.runner.run(PERIODS[self.period.currentText()])
+        self.runner.run(PERIODS[self.period.currentText()], self.target.currentData())
 
     def _failed(self, message: str) -> None:
         self.run_button.setEnabled(True)

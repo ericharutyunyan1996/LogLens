@@ -17,7 +17,8 @@ MAX_LINE_MESSAGE = 600  # characters of the message shown in the one-line form (
 
 # "2026-11-13 10:15:02.123 +04:00 Error [System] Service Control Manager (7031) — message ‖ {json}"
 EVENT_LINE = re.compile(
-    r"^\S+ \S+ [+-]\d\d:\d\d (?P<level>\w+) \[(?P<channel>[^\]]+)\] (?P<provider>.+?) \((?P<event_id>\d+)\) — "
+    r"^\S+ \S+ [+-]\d\d:\d\d (?P<level>\w+) \[(?P<channel>[^\]]+?)(?: @ (?P<server>[^\]]+))?\] "
+    r"(?P<provider>.+?) \((?P<event_id>\d+)\) — "
 )
 
 
@@ -36,6 +37,7 @@ class EventRecord:
     user_sid: str = ""
     message: str = ""
     data: dict[str, str] = field(default_factory=dict)
+    server: str = ""  # the LogLens server profile it was read from ("" = this computer)
 
     @property
     def level_name(self) -> str:
@@ -68,7 +70,8 @@ class EventRecord:
             "user": self.user_sid,
         }
         payload = json.dumps({k: v for k, v in details.items() if v not in ("", 0, {})}, ensure_ascii=False)
-        return f"{stamp} {self.level_name} [{self.channel}] {self.provider} ({self.event_id}) — {flat} ‖ {payload}"
+        where = f"{self.channel} @ {self.server}" if self.server else self.channel
+        return f"{stamp} {self.level_name} [{where}] {self.provider} ({self.event_id}) — {flat} ‖ {payload}"
 
 
 def _offset(moment: datetime) -> str:
@@ -176,4 +179,5 @@ def record_from_line(line: str) -> EventRecord | None:
         user_sid=str(details.get("user", "")),
         message=str(details.get("message", "")),
         data={str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {},
+        server=match["server"] or "",
     )

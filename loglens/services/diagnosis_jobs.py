@@ -11,7 +11,8 @@ from PySide6.QtCore import QObject, Signal
 
 from ..core.diagnose import DiagnosisFinding, channels_needed, coverage_warnings, run_all
 from ..core.winevent.models import EventRecord
-from ..core.winevent.reader import EventLogError, EventQuery, read_events
+from ..core.winevent.reader import EventLogError, EventQuery, ServerUnavailableError, read_events
+from ..core.winevent.remote import ServerProfile
 from ..core.winevent.wer import WerReport, find_reports, read_report
 from .jobs import JobSlot, start_worker
 
@@ -31,15 +32,23 @@ class DiagnosisResult:
     crash_reports: list[WerReport] = field(default_factory=list)
 
 
-def diagnose(start: datetime, end: datetime, *, reader: EventReader = read_events) -> DiagnosisResult:
-    """Read the channels the recipes need for [start, end], run them, and collect coverage warnings."""
+def diagnose(
+    start: datetime, end: datetime, *, reader: EventReader = read_events, server: ServerProfile | None = None
+) -> DiagnosisResult:
+    """Read the channels the recipes need for [start, end] (of this computer, or of ``server``), run them, and collect
+    coverage warnings."""
     by_channel: dict[str, list[EventRecord]] = {}
     errors: dict[str, str] = {}
     truncated = []
     for channel in channels_needed():
-        query = EventQuery(channel, since=start, until=end, max_events=DIAGNOSE_MAX_EVENTS)
+        query = EventQuery(channel, since=start, until=end, max_events=DIAGNOSE_MAX_EVENTS, server=server)
         try:
             events = list(reader(query))
+        except (
+            ServerUnavailableError
+        ) as exc:  # the server cannot be reached at all: its other channels would fail alike
+            errors[channel] = str(exc)
+            break
         except EventLogError as exc:
             errors[channel] = str(exc)
             continue
@@ -49,7 +58,8 @@ def diagnose(start: datetime, end: datetime, *, reader: EventReader = read_event
     findings = run_all(e for events in by_channel.values() for e in events)
     warnings = coverage_warnings(by_channel, start, end, errors, truncated_channels=truncated)
     reports = []
-    for path in find_reports(since=start)[:MAX_WER_REPORTS]:
+    # crash reports are files on this computer: a remote server's are not read
+    for path in find_reports(since=start)[:MAX_WER_REPORTS] if server is None else []:
         try:
             reports.append(read_report(path))
         except (OSError, ValueError) as exc:
@@ -67,7 +77,7 @@ class DiagnosisRunner(QObject):
         self._job = JobSlot()
         self._done.connect(self._on_done)
 
-    def run(self, hours: float) -> None:
+    def run(self, hours: float, server: ServerProfile | None = None) -> None:
         generation, _cancel = self._job.begin()
         end = datetime.now().astimezone()
         start = end - timedelta(hours=hours)
@@ -75,7 +85,7 @@ class DiagnosisRunner(QObject):
 
         def work() -> None:
             try:
-                result: object = diagnose(start, end)
+                result: object = diagnose(start, end, server=server)
             except Exception as exc:
                 log.exception("diagnosis failed")
                 result = f"Diagnosis failed: {exc}"

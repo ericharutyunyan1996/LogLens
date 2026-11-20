@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.winevent.reader import COMMON_CHANNELS, EventLogError, EventQuery, list_channels
+from ..core.winevent.remote import ServerProfile
 
 TIME_RANGES: dict[str, timedelta | None] = {
     "Last hour": timedelta(hours=1),
@@ -43,9 +45,10 @@ ERROR_COLOR = "#E5484D"
 
 
 class EventLogDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, servers: Sequence[ServerProfile] = ()) -> None:
         super().__init__(parent)
         self.setWindowTitle("Open Windows Event Logs")
+        self._servers = list(servers)
         self.resize(620, 620)
         self._all_channels: list[str] | None = None
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel, self)
@@ -63,7 +66,24 @@ class EventLogDialog(QDialog):
         self._update_enabled()
 
     def _build_sources(self, layout: QVBoxLayout) -> None:
-        self.from_machine = QRadioButton("Event logs on this computer", self)
+        self.from_machine = QRadioButton(
+            "Event logs of this computer and servers" if self._servers else "Event logs on this computer", self
+        )
+        self.sources = QListWidget(self)  # which computers to read: this one and any saved servers
+        this = QListWidgetItem("This computer", self.sources)
+        this.setFlags(this.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        this.setCheckState(Qt.CheckState.Checked)
+        for server in self._servers:
+            item = QListWidgetItem(f"{server.name}  ({server.host})", self.sources)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, server.name)
+            item.setToolTip(f"Signs in with {server.sign_in}")
+        self.sources.setMaximumHeight(26 + 22 * min(len(self._servers) + 1, 5))
+        self.sources.setVisible(bool(self._servers))
+        self.servers_note = QLabel("Other servers: File → Servers… adds them (nothing is installed on them).", self)
+        self.servers_note.setObjectName("dialogNote")
+        self.servers_note.setVisible(not self._servers)
         self.from_file = QRadioButton("Exported event log file (.evtx)", self)
         self.from_machine.setChecked(True)
         group = QButtonGroup(self)
@@ -91,6 +111,8 @@ class EventLogDialog(QDialog):
         file_row.addWidget(browse)
 
         layout.addWidget(self.from_machine)
+        layout.addWidget(self.sources)
+        layout.addWidget(self.servers_note)
         layout.addWidget(self.channel_filter)
         layout.addWidget(self.channels, 1)
         layout.addWidget(self.more, 0, Qt.AlignmentFlag.AlignLeft)
@@ -143,8 +165,10 @@ class EventLogDialog(QDialog):
         if self._all_channels is not None:
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  # listing every channel takes a moment
+        servers = [s for s in self.selected_sources() if s is not None]
         try:
-            self._all_channels = list_channels()
+            # the channel list of the first selected server (servers of one kind have alike logs), else this computer's
+            self._all_channels = list_channels(servers[0] if servers else None)
         except EventLogError as exc:
             self.admin_note.setText(str(exc))
             return
@@ -167,6 +191,17 @@ class EventLogDialog(QDialog):
             item = self.channels.item(row)
             item.setHidden(bool(needle) and needle not in item.text().lower())
 
+    def selected_sources(self) -> list[ServerProfile | None]:
+        """The computers to read: None is this computer, a ServerProfile another server."""
+        picked: list[ServerProfile | None] = []
+        for row in range(self.sources.count()):
+            item = self.sources.item(row)
+            if item.checkState() != Qt.CheckState.Checked:
+                continue
+            name = item.data(Qt.ItemDataRole.UserRole)
+            picked.append(next((s for s in self._servers if s.name == name), None) if name else None)
+        return picked
+
     def selected_channels(self) -> list[str]:
         return [
             self.channels.item(row).text()
@@ -182,7 +217,7 @@ class EventLogDialog(QDialog):
 
     def _update_enabled(self) -> None:
         machine = self.from_machine.isChecked()
-        for widget in (self.channel_filter, self.channels, self.more):
+        for widget in (self.channel_filter, self.channels, self.more, self.sources):
             widget.setEnabled(machine)
         self.file_path.setEnabled(not machine)
 
@@ -194,6 +229,8 @@ class EventLogDialog(QDialog):
         if self.from_file.isChecked():
             path = self.file_path.text().strip()
             return None if path and Path(path).is_file() else "Choose an existing .evtx file."
+        if not self.selected_sources():
+            return "Choose at least one computer."
         return None if self.selected_channels() else "Choose at least one event log."
 
     def accept(self) -> None:
@@ -214,7 +251,9 @@ class EventLogDialog(QDialog):
             path = self.file_path.text().strip()
             return [EventQuery(path, is_file=True, since=since, levels=levels, max_events=limit)] if path else []
         return [
-            EventQuery(channel, since=since, levels=levels, max_events=limit) for channel in self.selected_channels()
+            EventQuery(channel, since=since, levels=levels, max_events=limit, server=source)
+            for source in self.selected_sources()
+            for channel in self.selected_channels()
         ]
 
     @property
@@ -224,4 +263,7 @@ class EventLogDialog(QDialog):
     def title(self) -> str:
         if self.from_file.isChecked():
             return Path(self.file_path.text().strip()).stem or "evtx"
-        return "+".join(c.replace("/", "-").split("-")[-1] for c in self.selected_channels())[:60] or "events"
+        channels = "+".join(c.replace("/", "-").split("-")[-1] for c in self.selected_channels())
+        names = [s.name if s is not None else "local" for s in self.selected_sources()]
+        where = "+".join(names[:3]) + (f"+{len(names) - 3} more" if len(names) > 3 else "") if self._servers else ""
+        return f"{where} {channels}".strip()[:60] or "events"

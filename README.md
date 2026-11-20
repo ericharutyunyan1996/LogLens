@@ -41,6 +41,7 @@ what the haystack means, without sending your data anywhere unless you choose to
 | <img src="docs/images/columns-view.png" width="440"> | **Columns view.** Any log becomes a sortable table of parsed fields (25+ formats detected automatically, or define your own). |
 | <img src="docs/images/analyze-patterns.png" width="440"> | **Understand a whole log.** Message patterns, field value counts, SQL over parsed records, compare two logs, request/response pairs, HTTP statistics. |
 | <img src="docs/images/windows-events.png" width="440"> | **Windows Event Log correlation.** Read channels or `.evtx` files, follow events live, and see what Windows logged around any line. |
+| | **Other servers and containers.** `File → Servers…` adds Windows servers whose Event Viewer logs are read remotely, in parallel, on one timeline (this Windows account or credentials kept in Credential Manager; nothing is installed on the server). `File → Containers & Kubernetes…` opens live logs of Docker containers and Kubernetes pods through your own `docker` and `kubectl`. |
 | <img src="docs/images/ai-answer.png" width="440"> | **Optional AI, private by design.** Claude, or a **local model through Ollama** where nothing leaves your computer. You see and edit a redacted preview before anything is sent. |
 | <img src="docs/images/mask-secrets.png" width="440"> | **Mask secrets** with one click, so you can share your screen or screenshots safely. |
 
