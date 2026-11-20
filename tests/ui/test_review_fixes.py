@@ -567,3 +567,21 @@ def test_pin_lines_to_the_incident_and_export_a_report(window, tmp_path: Path, m
     incident_window._double_clicked(incident_window.tree.topLevelItem(0), 1)
     assert jumped
     incident_window.hide()
+
+
+# ---- script page ------------------------------------------------------------------------------------------------------
+def test_script_page_runs_a_script_over_the_log_and_refuses_unsafe_ones(window, wait_for: Callable[..., None]) -> None:
+    win, shop, _other = window
+    analysis = AnalysisWindow(shop, win, others=win.all_tabs)
+    page = analysis.pages["script"]
+    page.code.setPlainText("print(len(lines))\nprint(sum(1 for l in lines if 'order' in l))")
+    page.run()
+    wait_for(lambda: bool(page.output.toPlainText()))
+    assert page.output.toPlainText().split() == ["5", "2"] and "Done" in page.status.text()
+    page.code.setPlainText("import os\nprint(os.getcwd())")
+    page.run()
+    assert "not available" in page.status.text()
+    page.code.setPlainText("x = 1 / 0")
+    page.run()
+    wait_for(lambda: "ZeroDivisionError" in page.status.text())
+    analysis.shutdown()

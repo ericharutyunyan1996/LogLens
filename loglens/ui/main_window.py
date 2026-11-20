@@ -91,6 +91,7 @@ ANALYSIS_ACTIONS = (
     ("compare", "&Compare (what changed?)…", ""),
     ("fields", "&Fields (value counts)…", ""),
     ("sql", "&SQL over records…", "Ctrl+Shift+Q"),
+    ("script", "Scri&pt (Python)…", ""),
     ("http", "&HTTP requests…", "Ctrl+Shift+H"),
     ("transactions", "&Request / response pairs…", ""),
 )

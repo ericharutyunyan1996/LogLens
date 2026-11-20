@@ -44,6 +44,7 @@ from ..services.analysis_jobs import (
 from .analysis_base import LINE_ROLE, AnalysisPage, fill_tree, make_row, make_tree
 from .analysis_charts import ChartsPage
 from .analysis_fields import FieldsPage, SqlPage
+from .analysis_script import ScriptPage
 from .payload_view import RequestResponseView
 
 if TYPE_CHECKING:
@@ -537,6 +538,7 @@ PAGES: dict[str, type[AnalysisPage]] = {
     "patterns": PatternsPage,
     "fields": FieldsPage,
     "sql": SqlPage,
+    "script": ScriptPage,
     "http": HttpPage,
     "transactions": TransactionsPage,
 }

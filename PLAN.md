@@ -497,9 +497,9 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 - [x] **Share-safe copy** of a whole log with consistent pseudonyms for users, IPs and hosts.
 
 ### Phase 13 — Automate and extend
-- [ ] **Scripting console / notebook**: SQL and Python over the open log (sandboxed, read-only on the file).
+- [x] **Scripting console / notebook**: SQL and Python over the open log (sandboxed, read-only on the file).
 - [ ] **Plugins** for formats, analyzers and sources (a documented, versioned interface).
-- [ ] **Scheduled digests**: watch folders, servers or containers and send a daily summary of new problems (email / Teams /
+- [x] **Scheduled digests**: watch folders, servers or containers and send a daily summary of new problems (email / Teams /
       Slack / webhook); alert delivery to the same channels. A command-line mode (`loglens diagnose --since 1h`, report
       generation) for scripts and CI.
 
