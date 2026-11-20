@@ -63,10 +63,10 @@ what the haystack means, without sending your data anywhere unless you choose to
 - **Summary**: errors, the first error, the most frequent ones, busiest and quietest periods, slowest requests and
   *what to look at first*, with clickable line numbers. Save it as Markdown.
 - **Unusual**: bursts, kinds of message that appear late and repeat, silences.
-- **Ask in plain words** (`Ctrl+Shift+A`): "errors in the last hour but not timeouts" becomes a filter you can see and edit.
+- **Ask in plain words** (`Ctrl+Shift+Y`): "errors in the last hour but not timeouts" becomes a filter you can see and edit.
   Offline, no AI needed.
 - **Charts**: counts, averages and percentiles of any field or number over time; save definitions, export a picture.
-- **Trace an id across logs** (`Ctrl+Shift+T`): one trace / request id through every open log as a waterfall.
+- **Trace an id across logs** (`Ctrl+Shift+J`): one trace / request id through every open log as a waterfall.
 - **Compare two runs side by side**: an aligned diff that ignores timestamps, numbers and ids.
 - **Script**: Python over the open log, read-only and time-limited. **Personal data scan**: e-mails, checksum-verified card
   numbers, IBANs, phone numbers, IPs and secrets, reported with masked examples.

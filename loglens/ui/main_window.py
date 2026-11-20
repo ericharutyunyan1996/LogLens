@@ -93,7 +93,7 @@ LOG_FILTER = (
 ANALYSIS_ACTIONS = (
     ("summary", "&Summary (what to look at first)…", "Ctrl+Shift+U"),
     ("unusual", "&Unusual (spikes, new messages)…", ""),
-    ("charts", "C&harts (over time)…", "Ctrl+Shift+G"),
+    ("charts", "C&harts (over time)…", "Ctrl+Shift+C"),
     ("patterns", "&Patterns…", "Ctrl+Shift+N"),
     ("compare", "&Compare (what changed?)…", ""),
     ("fields", "&Fields (value counts)…", ""),
@@ -485,12 +485,12 @@ class MainWindow(QMainWindow):
         pin = self.analyze_menu.addAction("Add selected lines to the &incident", self.pin_to_incident)
         pin.setShortcut("Ctrl+Shift+I")
         self.analyze_menu.addAction("&Incident…", self.open_incident)
-        self.analyze_menu.addAction("&Trace an id across logs…", self.open_trace, "Ctrl+Shift+T")
+        self.analyze_menu.addAction("&Trace an id across logs…", self.open_trace, "Ctrl+Shift+J")
         self.analyze_menu.addAction("Compare two &runs side by side…", self.open_rundiff)
         self.plugin_menu = self.analyze_menu.addMenu("&Plugins")
         self.plugin_menu.aboutToShow.connect(self._fill_plugin_menu)
         ask = self.analyze_menu.addAction("&Ask in plain words…", self.ask_in_plain_words)
-        ask.setShortcut("Ctrl+Shift+A")
+        ask.setShortcut("Ctrl+Shift+Y")
         self.watch_menu = mb.addMenu("&Watch")
         self.watch_menu.aboutToShow.connect(lambda: self.watch.fill_menu(self.watch_menu))
         self.watch.fill_menu(self.watch_menu)

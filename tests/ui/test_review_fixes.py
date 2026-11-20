@@ -660,3 +660,20 @@ def test_receive_logs_opens_a_live_tab_and_stops_with_it(
     tab = next(t for t in win.all_tabs() if t.document.path.lower() == key)
     win.close_tab(win.tabs.indexOf(tab))
     assert not win._receivers
+
+
+def test_no_two_actions_share_a_shortcut(window) -> None:
+    """Two actions with the same shortcut make Qt ignore both: every shortcut must be unique in the window."""
+    from collections import defaultdict
+
+    from PySide6.QtGui import QAction
+
+    win, _shop, _other = window
+    seen: dict[str, list[str]] = defaultdict(list)
+    for action in win.findChildren(QAction):
+        for sequence in action.shortcuts():
+            text = sequence.toString()
+            if text:
+                seen[text].append(action.text().replace("&", ""))
+    clashes = {k: v for k, v in seen.items() if len(set(v)) > 1}
+    assert not clashes, clashes

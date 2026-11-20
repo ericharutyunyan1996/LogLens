@@ -480,7 +480,7 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 ### Phase 10 — Understand a log faster
 - [x] **Triage summary** on open: the first real error, the noisiest patterns, busiest / quietest periods, slowest requests,
       "what to look at first" (one page, exportable).
-- [x] **Ask in plain words** (Analyze → Ask in plain words, Ctrl+Shift+A): a sentence becomes levels, include / exclude words and a
+- [x] **Ask in plain words** (Analyze → Ask in plain words, Ctrl+Shift+Y): a sentence becomes levels, include / exclude words and a
       time range, offline and rule based; every part is explained and editable in the filter panel. (An AI-assisted wording
       for sentences the rules do not understand is a later option.)
 - [x] **Anomaly highlights**: rate spikes, new kinds of message, field-value shifts, with "started at 10:42" markers on the
