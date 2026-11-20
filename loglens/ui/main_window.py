@@ -45,10 +45,13 @@ from ..core.encoding import KNOWN_ENCODINGS
 from ..core.formats import FormatError, LogFormat
 from ..core.highlight import HighlightRule
 from ..core.incident import Incident
+from ..core.plugins import Analyzer, PluginInfo, read_source, run_analyzer, scan
+from ..core.plugins import Source as PluginSource
 from ..core.timeline import TimelineSource
 from ..core.websearch import query_parts
 from ..core.winevent.reader import EventQuery
-from ..paths import container_logs_dir, event_exports_dir
+from ..paths import container_logs_dir, event_exports_dir, plugin_logs_dir, plugins_dir
+from ..services.analysis_jobs import AnalysisScope, iter_lines
 from ..services.container_jobs import ContainerStreamer, capture_path
 from ..services.eventlog_jobs import EventLogExporter, EventLogFollower
 from ..services.knowledge_service import KnowledgeService
@@ -67,6 +70,7 @@ from .log_tab import LogTab
 from .log_view import monospace_font
 from .multi_dialogs import FindAllDialog, TimelineDialog
 from .packs_controller import PacksController
+from .payload_view import Background
 from .qt_utils import copy_from_focused_text, exec_dialog
 from .theme import THEMES, apply_theme, is_dark, style_sheet
 from .watch_controller import WatchController
@@ -146,10 +150,13 @@ class MainWindow(QMainWindow):
         self._trace_dialog: QDialog | None = None
         self._rundiff: RunDiffDialog | None = None
         self._incident: IncidentWindow | None = None
+        self._plugins: list[PluginInfo] = []
+        self._plugin_job: Background | None = None
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
         self.knowledge.set_team_dir(settings.team_kb_dir, announce=False)
+        self.reload_plugins()
         self.knowledge.teamChanged.connect(lambda path: setattr(self.settings, "team_kb_dir", path))
         self._told_about_tray = False
         self.watch = WatchController(settings, self)
@@ -455,6 +462,8 @@ class MainWindow(QMainWindow):
         self.analyze_menu.addAction("&Incident…", self.open_incident)
         self.analyze_menu.addAction("&Trace an id across logs…", self.open_trace, "Ctrl+Shift+T")
         self.analyze_menu.addAction("Compare two &runs side by side…", self.open_rundiff)
+        self.plugin_menu = self.analyze_menu.addMenu("&Plugins")
+        self.plugin_menu.aboutToShow.connect(self._fill_plugin_menu)
         ask = self.analyze_menu.addAction("&Ask in plain words…", self.ask_in_plain_words)
         ask.setShortcut("Ctrl+Shift+A")
         self.watch_menu = mb.addMenu("&Watch")
@@ -788,6 +797,87 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(f"{source} is not open and its file was not found.", 8000)
 
+    def reapply_formats(self) -> None:
+        formats = self._custom_formats()
+        self._for_each_tab(lambda t: t.document.set_extra_formats(formats))
+
+    # ---- plugins ---------------------------------------------------------------------------------------------------
+    def reload_plugins(self) -> list[PluginInfo]:
+        self._plugins = scan(plugins_dir(), self.settings.plugin_enabled)
+        return self._plugins
+
+    def _fill_plugin_menu(self) -> None:
+        menu = self.plugin_menu
+        menu.clear()
+        if not self._plugins:
+            self.reload_plugins()
+        tab = self.current_tab()
+        analyzers = [(p, a) for p in self._plugins for a in p.analyzers]
+        for plugin, analyzer in analyzers:
+            action = menu.addAction(f"{analyzer.title}  ({plugin.title})", partial(self.run_plugin_analyzer, analyzer))
+            action.setEnabled(tab is not None)
+        sources = [(p, s) for p in self._plugins for s in p.sources]
+        if sources:
+            if analyzers:
+                menu.addSeparator()
+            for plugin, source in sources:
+                menu.addAction(f"Open: {source.title}  ({plugin.title})", partial(self.open_plugin_source, source))
+        if analyzers or sources:
+            menu.addSeparator()
+        menu.addAction("&Manage plugins…", self.open_plugins)
+
+    def open_plugins(self) -> None:
+        from .plugins_dialog import PluginsDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        dialog = PluginsDialog(plugins_dir(), self.settings, self.reload_plugins, self)
+        exec_dialog(dialog)
+        self.reload_plugins()
+        self.reapply_formats()
+
+    def run_plugin_analyzer(self, analyzer: Analyzer) -> None:
+        """Run a plugin's analyzer over the whole current log in the background and show its report."""
+        from .plugins_dialog import ReportDialog  # noqa: PLC0415
+
+        tab = self.current_tab()
+        if tab is None:
+            return
+        source, title = tab.document.source, tab.document.title
+        total = source.line_count()
+        scope = AnalysisScope(None, "the whole log")
+        self.statusBar().showMessage(f"Running {analyzer.title}…")
+
+        def work() -> object:
+            return run_analyzer(analyzer, (text for _n, text in iter_lines(source, scope)))
+
+        def done(result: object) -> None:
+            self.statusBar().clearMessage()
+            text = str(result) if not isinstance(result, Exception) else f"The plugin failed: {result}"
+            ReportDialog(f"{analyzer.title}: {title} ({total:,} lines)", text, self).show()
+
+        self._plugin_job = Background(self, done)
+        self._plugin_job.start(work)
+
+    def open_plugin_source(self, source: PluginSource) -> None:
+        """Read a plugin source in the background, write it to a file and open that as a live-less log tab."""
+        self.statusBar().showMessage(f"Reading {source.title}…")
+
+        def work() -> object:
+            lines = read_source(source)
+            safe = "".join(c if c.isalnum() or c in " -_" else "_" for c in source.title).strip() or "plugin"
+            target = plugin_logs_dir() / f"{safe} {datetime.now():%Y%m%d-%H%M%S}.log"
+            target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return str(target)
+
+        def done(result: object) -> None:
+            self.statusBar().clearMessage()
+            if isinstance(result, str):
+                self.open_file(result)
+            else:
+                QMessageBox.warning(self, APP_NAME, f"The source could not be read: {result}")
+
+        self._plugin_job = Background(self, done)
+        self._plugin_job.start(work)
+
     def open_rundiff(self) -> None:
         from .rundiff_dialog import RunDiffDialog  # noqa: PLC0415 - dialog module only needed on demand
 
@@ -1091,7 +1181,7 @@ class MainWindow(QMainWindow):
             self.act_columns.setChecked(visible)
 
     def _custom_formats(self) -> list[LogFormat]:
-        out = []
+        out = [fmt for plugin in self._plugins for fmt in plugin.formats]
         for custom in self.settings.custom_formats():
             try:
                 out.append(custom.to_format())

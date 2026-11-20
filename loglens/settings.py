@@ -46,6 +46,7 @@ class Settings:
     run_in_tray: bool = False
     watched_services: list[str] = field(default_factory=list)
     custom_format_list: list[dict] = field(default_factory=list)
+    plugin_enabled: dict[str, str] = field(default_factory=dict)  # plugin file -> SHA-256 of the approved file
     team_kb_dir: str = ""  # shared knowledge folder (packs + runbooks), read-only
     server_list: list[dict] = field(default_factory=list)  # other Windows servers (no passwords here)
 

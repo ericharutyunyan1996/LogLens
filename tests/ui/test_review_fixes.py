@@ -585,3 +585,32 @@ def test_script_page_runs_a_script_over_the_log_and_refuses_unsafe_ones(window, 
     page.run()
     wait_for(lambda: "ZeroDivisionError" in page.status.text())
     analysis.shutdown()
+
+
+# ---- plugins -----------------------------------------------------------------------------------------------------------
+def test_an_approved_plugin_analyzer_runs_from_the_menu(
+    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, wait_for
+) -> None:
+    from loglens.core.plugins import file_hash
+    from loglens.ui import main_window as mw
+
+    win, shop, _other = window
+    folder = tmp_path / "plugins"
+    folder.mkdir()
+    code = "PLUGIN = {'api': 1, 'name': 'Demo'}\nANALYZERS = [{'title': 'Count lines', 'run': lambda lines: f'{sum(1 for _ in lines)} lines'}]\n"
+    path = folder / "demo.py"
+    path.write_text(code, encoding="utf-8")
+    monkeypatch.setattr(mw, "plugins_dir", lambda: folder)
+    win.settings.plugin_enabled["demo.py"] = file_hash(path)
+    plugins = win.reload_plugins()
+    assert plugins[0].enabled and plugins[0].analyzers
+    shown: list[str] = []
+    monkeypatch.setattr(
+        "loglens.ui.plugins_dialog.ReportDialog.show", lambda self: shown.append(self.view.toPlainText())
+    )
+    win.tabs.setCurrentWidget(shop)
+    win.run_plugin_analyzer(plugins[0].analyzers[0])
+    wait_for(lambda: bool(shown))
+    assert shown == ["5 lines"]
+    win.settings.plugin_enabled.clear()
+    assert not win.reload_plugins()[0].enabled

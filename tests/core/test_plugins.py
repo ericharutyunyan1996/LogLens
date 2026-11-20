@@ -7,7 +7,7 @@ from pathlib import Path
 from loglens.core import plugins
 from loglens.core.plugins import describe_file, file_hash, read_source, run_analyzer, scan
 
-GOOD = '''
+GOOD = """
 PLUGIN = {"name": "Orders", "version": "1.2", "api": 1, "description": "Counts orders"}
 
 def count_orders(lines):
@@ -16,7 +16,7 @@ def count_orders(lines):
 ANALYZERS = [{"title": "Count orders", "run": count_orders}]
 SOURCES = [{"title": "Demo source", "read": lambda: iter(["one", "two\\n"])}]
 FORMATS = [{"name": "orders", "regex": r"^(?P<time>\\d{4}-\\d\\d-\\d\\d) (?P<level>\\w+) (?P<message>.*)$"}]
-'''
+"""
 
 
 def make(folder: Path, name: str, code: str) -> Path:

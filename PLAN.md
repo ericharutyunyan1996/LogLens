@@ -8,15 +8,11 @@
 **Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
-> **Hand-off (resume point):** v0.2.0 is released. Done and committed since: Phases 10, 11, 12, and in Phase 13 the CLI + digests
-> and the Script page. In progress: **plugins** (Phase 13): `core/plugins.py` + `tests/core/test_plugins.py` are done; the UI is
-> written but NOT wired: `loglens/ui/plugins_dialog.py` (uncommitted) and the main-window patch script
-> `scratchpad/patch_plugins.py` (adds `plugins_dir`, `plugin_logs_dir`, `Settings.plugin_enabled`, Analyze > Plugins menu,
-> `reload_plugins`, `open_plugins`, `run_plugin_analyzer`, `open_plugin_source`; still needed: a `reapply_formats()` method that
-> calls `set_extra_formats(self._custom_formats())` on every tab, imports of `Analyzer`/`Source`/`Background`/`AnalysisScope`/
-> `iter_lines`, `reload_plugins()` at startup, a UI test, docs `docs/plugins.md`). Then Phase 14 (performance counters, Sysmon/
-> PowerShell/Defender sources, personal-data scan), then Phase 9 leftovers (9.4, 9.6-9.9). Gate: `.venv\Scripts\python.exe -m ruff
-> check/format`, `mypy loglens`, `pytest`. Release (version bump + tag) only when the user asks.
+> **Hand-off (resume point):** v0.2.0 is released. Done and committed since: Phases 10, 11, 12 and 13 (CLI + digests for folders,
+> Script page, plugins with approval; docs in `docs/plugins`). Next: **Phase 14** (performance counters overlay, Sysmon/PowerShell/
+> Defender/Task Scheduler explanations + ForwardedEvents, personal-data scan with masked export), then the Phase 9 leftovers
+> (9.4 SMB, 9.6 WSL/SSH, 9.7 receivers, 9.8 cloud, 9.9 .gz + index cache). Digests of servers/containers are not done yet.
+> Gate: `.venv\Scripts\python.exe -m ruff check/format`, `mypy loglens`, `pytest` (1540 passed). Release only when the user asks.
 
 **Contents**
 1. [Vision](#1-vision) — who it is for and the problems it solves
@@ -503,7 +499,7 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 
 ### Phase 13 — Automate and extend
 - [x] **Scripting console / notebook**: SQL and Python over the open log (sandboxed, read-only on the file).
-- [ ] **Plugins** for formats, analyzers and sources (a documented, versioned interface).
+- [x] **Plugins** for formats, analyzers and sources (a documented, versioned interface).
 - [x] **Scheduled digests**: watch folders, servers or containers and send a daily summary of new problems (email / Teams /
       Slack / webhook); alert delivery to the same channels. A command-line mode (`loglens diagnose --since 1h`, report
       generation) for scripts and CI.
