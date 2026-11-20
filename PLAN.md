@@ -8,7 +8,7 @@
 **Status:** v0.3.0 is released (see the hand-off note below); v0.1.0 was the first release (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
-> **Hand-off (resume point):** v0.3.0 is released (tag v0.3.0; the workflow builds the signed MSI). Everything through Phase 13, most of
+> **Hand-off (resume point):** v0.3.1 is released (tag v0.3.1; 0.3.0 had clashing hotkeys; the workflow builds the signed MSI). Everything through Phase 13, most of
 > Phase 14 and Phase 9 (except below) is done. Still open: performance counters overlay, ForwardedEvents (WEF), SMB saved
 > credentials + rotation-safe polling (9.4), Azure Monitor / CloudWatch (9.8), .zst + index cache (9.9), container digests.
 > Gate: ruff check/format, `mypy loglens`, `pytest` via `.venv\Scripts\python.exe`.
