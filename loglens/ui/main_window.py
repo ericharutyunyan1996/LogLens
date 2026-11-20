@@ -58,6 +58,7 @@ from ..services.eventlog_jobs import EventLogExporter, EventLogFollower
 from ..services.knowledge_service import KnowledgeService
 from ..services.log_document import MarkSummary
 from ..services.multi_jobs import BundleLoader, TimelineBuilder
+from ..services.receiver import Receiver, Sink, start_receiver
 from ..settings import Settings
 from .ai_controller import AIController
 from .analysis_window import AnalysisWindow
@@ -156,6 +157,7 @@ class MainWindow(QMainWindow):
         self._plugins: list[PluginInfo] = []
         self._plugin_job: Background | None = None
         self._unpack_job: Background | None = None
+        self._receivers: dict[str, Receiver] = {}
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
@@ -214,6 +216,11 @@ class MainWindow(QMainWindow):
             icon="events",
         )
         self.act_events.setIconText("Event Logs")
+        self.act_receive = a(
+            "&Receive logs (syslog / HTTP)…",
+            self.open_receiver,
+            tip="Listen for logs pushed by other machines or apps and follow them live",
+        )
         self.act_containers = a(
             "&Containers && Kubernetes…",
             self.open_containers,
@@ -371,6 +378,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_events)
         m.addAction(self.act_servers)
         m.addAction(self.act_containers)
+        m.addAction(self.act_receive)
         m.addAction(self.act_bundle)
         self.recent_menu = m.addMenu("Open &recent")
         m.addAction(self.act_reload)
@@ -539,6 +547,23 @@ class MainWindow(QMainWindow):
         from .servers_dialog import ServersDialog  # noqa: PLC0415 - dialog module only needed on demand
 
         ServersDialog(self.settings, self).exec()
+
+    def open_receiver(self) -> None:
+        from .receiver_dialog import ReceiverDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        dialog = ReceiverDialog(self)
+        if not exec_dialog(dialog):
+            return
+        kind, host, port = dialog.choice()
+        target = container_logs_dir() / f"Received {kind} {datetime.now():%Y%m%d-%H%M%S}.log"
+        try:
+            receiver = start_receiver(kind, Sink(target), host=host, port=port)
+        except OSError as exc:
+            QMessageBox.warning(self, APP_NAME, f"Could not listen on port {port}: {exc}")
+            return
+        self._receivers[str(target.resolve()).lower()] = receiver
+        self.statusBar().showMessage(f"Listening on {host}:{receiver.port} ({kind}); close the tab to stop.", 10000)
+        self.open_live(str(target))
 
     def open_containers(self) -> None:
         from .containers_dialog import ContainersDialog  # noqa: PLC0415 - dialog module only needed on demand
@@ -1117,6 +1142,9 @@ class MainWindow(QMainWindow):
             if follower is not None:
                 follower.stop()
                 follower.deleteLater()
+            receiver = self._receivers.pop(str(Path(tab.document.path).resolve()).lower(), None)
+            if receiver is not None:
+                receiver.stop()
             streamer = self._streamers.pop(str(Path(tab.document.path).resolve()).lower(), None)
             if streamer is not None:
                 streamer.stop()
@@ -1414,6 +1442,8 @@ class MainWindow(QMainWindow):
             return
         if self.watch.tray is not None:
             self.watch.tray.hide()
+        for receiver in self._receivers.values():
+            receiver.stop()
         for streamer in self._streamers.values():
             streamer.stop()  # do not leave docker / kubectl processes running after the app closes
         self.settings.window_geometry = _to_base64(self.saveGeometry())

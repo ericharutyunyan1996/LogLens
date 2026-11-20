@@ -638,3 +638,25 @@ def test_a_gz_log_is_unpacked_and_opened(window, tmp_path: Path, monkeypatch: py
         handle.write(b"2026-11-13 10:00:00,000 [1] ERROR Shop - from an archive\n")
     win.open_file(str(archive))
     wait_for(lambda: any(t.document.title.startswith("old.log [") for t in win.all_tabs()))
+
+
+def test_receive_logs_opens_a_live_tab_and_stops_with_it(
+    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, wait_for
+) -> None:
+    import socket
+
+    from loglens.ui import main_window as mw
+    from loglens.ui.receiver_dialog import ReceiverDialog
+
+    win, _shop, _other = window
+    monkeypatch.setattr(mw, "container_logs_dir", lambda: tmp_path)
+    monkeypatch.setattr(mw, "exec_dialog", lambda d: True)
+    monkeypatch.setattr(ReceiverDialog, "choice", lambda self: ("syslog-udp", "127.0.0.1", 0))
+    win.open_receiver()
+    ((key, receiver),) = win._receivers.items()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.sendto(b"hello from a device", ("127.0.0.1", receiver.port))
+    wait_for(lambda: receiver.sink.count == 1)
+    tab = next(t for t in win.all_tabs() if t.document.path.lower() == key)
+    win.close_tab(win.tabs.indexOf(tab))
+    assert not win._receivers
