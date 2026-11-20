@@ -113,6 +113,10 @@ def _forget_error_box(_result: int = 0) -> None:
 def main(argv: list[str] | None = None) -> int:
     multiprocessing.freeze_support()  # needed for the search process pool in a frozen (PyInstaller) build
     argv = sys.argv if argv is None else argv
+    from . import cli
+
+    if cli.is_cli(argv):  # `loglens summary|diagnose|digest|schedule …` runs without a window
+        return cli.run(argv)
     _setup_logging()
     install_exception_hooks()
 

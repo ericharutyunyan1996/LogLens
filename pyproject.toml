@@ -73,6 +73,7 @@ ignore = [
 # Deferred imports on purpose: search worker processes import the app's main module, so Qt must not load at import
 # time there; freeze_support() and logging must also run before the heavy imports.
 "loglens/app.py" = ["PLC0415"]
+"loglens/cli.py" = ["T20", "PLC0415", "PTH123"]  # the command line prints; CONOUT$ is a console device, not a file
 "loglens/ui/*.py" = ["N802", "N815"]   # Qt overrides (paintEvent) and signal names (currentRowChanged) are camelCase
 "loglens/services/*.py" = ["N815"]     # Qt signal names
 "tests/**/*.py" = ["PLR0915", "T20", "PLC0415", "E501"]  # E501: tests quote long log lines verbatim
