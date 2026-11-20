@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import json
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
@@ -145,7 +146,9 @@ class PayloadTreeView(QWidget):
         self.hit_label = QLabel(self)
         self.prev_hit = self._button("◀", "Previous match")
         self.next_hit = self._button("▶", "Next match")
-        self.expand_button = self._button("Expand", "Expand the first levels")
+        self.expand_button = self._button(
+            "Expand", "Expand as much as is practical (large payloads: the first few thousand nodes)"
+        )
         self.collapse_button = self._button("Collapse", "Collapse everything")
         self.copy_raw = self._button("Copy raw", "Copy the exact original text")
         self.copy_formatted = self._button("Copy formatted", "Copy the indented text")
@@ -185,8 +188,8 @@ class PayloadTreeView(QWidget):
         self.search.returnPressed.connect(lambda: self._step(1))
         self.prev_hit.clicked.connect(lambda: self._step(-1))
         self.next_hit.clicked.connect(lambda: self._step(1))
-        self.expand_button.clicked.connect(self.expand_levels)
-        self.collapse_button.clicked.connect(self.tree.collapseAll)
+        self.expand_button.clicked.connect(lambda _checked=False: self.expand_all())
+        self.collapse_button.clicked.connect(lambda _checked=False: self.collapse_all())
         self.copy_raw.clicked.connect(lambda: self._copy(self._parsed.raw if self._parsed else ""))
         self.copy_formatted.clicked.connect(lambda: self._copy(self._parsed.formatted() if self._parsed else ""))
         self.copy_value.clicked.connect(self._copy_selected)
@@ -317,6 +320,30 @@ class PayloadTreeView(QWidget):
 
         for i in range(self.tree.topLevelItemCount()):
             walk(_top(self.tree, i), 0)
+
+    def expand_all(self, budget: int = AUTO_EXPAND_NODES) -> None:
+        """Expand level by level, shallow levels first, until ``budget`` rows are open. A payload that is bigger than
+        that is not expanded blindly (it would freeze the UI): the rest opens on demand, and the label says so."""
+        queue: deque[QTreeWidgetItem] = deque(_top(self.tree, i) for i in range(self.tree.topLevelItemCount()))
+        opened = 0
+        cut = False
+        while queue:
+            item = queue.popleft()
+            if item.data(0, NODE_ROLE) is None or item.childCount() == 0:
+                continue  # a "more" row, a placeholder or a leaf
+            if opened >= budget:
+                cut = True
+                break
+            item.setExpanded(True)  # lazy: loads the first page of children
+            opened += item.childCount()
+            queue.extend(_child(item, i) for i in range(item.childCount()))
+        self.hit_label.setText(f"expanded {opened:,} rows; open the rest on demand" if cut else "")
+
+    def collapse_all(self) -> None:
+        self.tree.collapseAll()
+        if self.tree.topLevelItemCount():
+            _top(self.tree, 0).setExpanded(True)  # keep the root open: a fully closed tree looks empty
+        self.hit_label.clear()
 
     # -- search ---------------------------------------------------------------------------------------------------
     def _run_search(self) -> None:
