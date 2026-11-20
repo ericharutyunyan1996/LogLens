@@ -8,11 +8,11 @@
 **Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
-> **Hand-off (resume point):** v0.2.0 is released; everything after it is committed and pushed (HEAD: receivers). Done: Phases 10-13,
-> Phase 14 personal-data scan and Sysmon / PowerShell / Task Scheduler explanations, 9.7 receivers, 9.9 .gz opening.
+> **Hand-off (resume point):** v0.2.0 is released; everything after it is committed and pushed (HEAD: WSL/SSH sources). Done: Phases 10-13,
+> Phase 14 personal-data scan and Sysmon / PowerShell / Task Scheduler explanations, 9.6 WSL/SSH, 9.7 receivers, 9.9 .gz opening. The local 0.2.0 MSI built from before 9.6 is what the user installed and is testing.
 > Still open: Phase 14 performance counters overlay and ForwardedEvents (WEF); 9.4 SMB (UNC paths open already, no saved
 > credentials / rotation-safe polling yet); 9.8 cloud connectors; 9.9 .zst + index cache; digests for
-> servers and containers. Gate: ruff check/format, `mypy loglens`, `pytest` (1554 passed) via `.venv\Scripts\python.exe`.
+> servers and containers. Gate: ruff check/format, `mypy loglens`, `pytest` (1570 passed) via `.venv\Scripts\python.exe`.
 > Release (version bump + tag) only when the user asks.
 
 **Contents**
