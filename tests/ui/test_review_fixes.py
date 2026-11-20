@@ -624,3 +624,17 @@ def test_personal_data_page_finds_values(window, wait_for) -> None:
     wait_for(lambda: not page.busy and bool(page.status.text()))
     assert page.status.text() == "No personal data found."
     analysis.shutdown()
+
+
+def test_a_gz_log_is_unpacked_and_opened(window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, wait_for) -> None:
+    import gzip
+
+    from loglens.ui import main_window as mw
+
+    win, _shop, _other = window
+    monkeypatch.setattr(mw, "unpacked_dir", lambda: tmp_path / "unpacked")
+    archive = tmp_path / "old.log.gz"
+    with gzip.open(archive, "wb") as handle:
+        handle.write(b"2026-11-13 10:00:00,000 [1] ERROR Shop - from an archive\n")
+    win.open_file(str(archive))
+    wait_for(lambda: any(t.document.title.startswith("old.log [") for t in win.all_tabs()))

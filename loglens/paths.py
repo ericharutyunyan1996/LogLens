@@ -29,6 +29,14 @@ def log_file() -> Path:
     return log_dir() / "loglens.log"
 
 
+def unpacked_dir() -> Path:
+    """Where compressed logs (.gz) are unpacked to, so they open like ordinary logs."""
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home() / ".cache")
+    path = Path(base) / "LogLens" / "unpacked"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def plugins_dir() -> Path:
     """Plugin files (*.py) live here; the folder is created when LogLens first looks at it."""
     path = app_data_dir() / "plugins"

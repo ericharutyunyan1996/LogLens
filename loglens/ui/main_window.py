@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from .. import APP_NAME, __version__
 from ..core.bundles import BundleFile
+from ..core.compressed import CompressedError, is_compressed, unpack_gz
 from ..core.containers import LogSource
 from ..core.elevation import elevation_is_safe, is_admin, relaunch_elevated
 from ..core.encoding import KNOWN_ENCODINGS
@@ -50,7 +51,7 @@ from ..core.plugins import Source as PluginSource
 from ..core.timeline import TimelineSource
 from ..core.websearch import query_parts
 from ..core.winevent.reader import EventQuery
-from ..paths import container_logs_dir, event_exports_dir, plugin_logs_dir, plugins_dir
+from ..paths import container_logs_dir, event_exports_dir, plugin_logs_dir, plugins_dir, unpacked_dir
 from ..services.analysis_jobs import AnalysisScope, iter_lines
 from ..services.container_jobs import ContainerStreamer, capture_path
 from ..services.eventlog_jobs import EventLogExporter, EventLogFollower
@@ -83,7 +84,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 LOG_FILTER = (
-    "Log files (*.log *.txt *.out *.err *.json *.jsonl *.csv *.trace);;Windows event log files (*.evtx);;All files (*)"
+    "Log files (*.log *.txt *.out *.err *.json *.jsonl *.csv *.trace *.gz);;"
+    "Windows event log files (*.evtx);;All files (*)"
 )
 # (page key, menu text, shortcut). No Ctrl+Alt+letter shortcuts anywhere: on Windows AltGr is Ctrl+Alt, and
 # AltGr+letter types characters (@ € µ on German, ą ć ó on Polish layouts …) that a shortcut would swallow.
@@ -104,7 +106,7 @@ EVTX_MAX_EVENTS = 500_000  # events read from one .evtx file (newest first)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings) -> None:  # noqa: PLR0915 - builds the whole window
         super().__init__()
         self.settings = settings
         self.setWindowTitle(APP_NAME)
@@ -153,6 +155,7 @@ class MainWindow(QMainWindow):
         self._incident: IncidentWindow | None = None
         self._plugins: list[PluginInfo] = []
         self._plugin_job: Background | None = None
+        self._unpack_job: Background | None = None
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
@@ -656,6 +659,26 @@ class MainWindow(QMainWindow):
         for p in paths:
             self.open_file(p)
 
+    def open_compressed(self, path: str) -> None:
+        """A .gz log: unpack it once (in the background) and open the plain file."""
+        self.statusBar().showMessage(f"Unpacking {Path(path).name}…")
+
+        def work() -> object:
+            try:
+                return str(unpack_gz(Path(path), unpacked_dir()))
+            except CompressedError as exc:
+                return exc
+
+        def done(result: object) -> None:
+            self.statusBar().clearMessage()
+            if isinstance(result, str):
+                self.open_file(result)
+            else:
+                QMessageBox.warning(self, APP_NAME, str(result))
+
+        self._unpack_job = Background(self, done)
+        self._unpack_job.start(work)
+
     def open_file(self, path: str, codec: str | None = None) -> None:
         path = str(Path(path).resolve())
         for i in range(self.tabs.count()):
@@ -668,6 +691,9 @@ class MainWindow(QMainWindow):
             return
         if Path(path).suffix.lower() == ".evtx":
             self.open_evtx(path)
+            return
+        if is_compressed(path):
+            self.open_compressed(path)
             return
         try:
             tab = LogTab(

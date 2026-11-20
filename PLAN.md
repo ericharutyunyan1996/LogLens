@@ -11,7 +11,7 @@
 > **Hand-off (resume point):** v0.2.0 is released. Done and committed since: Phases 10-13, and in Phase 14 the personal-data scan and
 > Sysmon / PowerShell / Task Scheduler knowledge entries. Next: Phase 14 leftovers (performance counters overlay, ForwardedEvents
 > channel), then the Phase 9 leftovers (9.4 SMB, 9.6 WSL/SSH, 9.7 receivers, 9.8 cloud, 9.9 .gz + index cache). Digests of
-> servers/containers are not done yet. Gate: ruff check/format, `mypy loglens`, `pytest` via `.venv\Scripts\python.exe`. Release only when the user asks.
+> servers/containers are not done yet. 9.9 .gz opening is done (cache unpack). Gate: ruff check/format, `mypy loglens`, `pytest` via `.venv\Scripts\python.exe`. Release only when the user asks.
 
 **Contents**
 1. [Vision](#1-vision) — who it is for and the problems it solves
@@ -475,7 +475,7 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 - [ ] 9.7 **Receivers**: syslog (UDP / TCP) and an HTTP endpoint, so servers and apps can push logs to LogLens.
 - [ ] 9.8 **Cloud and log platforms**: Azure Monitor / Application Insights, AWS CloudWatch Logs, Grafana Loki, Elasticsearch,
       read through each service's own sign-in; queries limited by time and size.
-- [ ] 9.9 **Compressed logs** (`.gz`, then `.zst`) opened directly; **on-disk index cache** so a multi-GB file reopens at once.
+- [~] 9.9 **Compressed logs** (`.gz` done: unpacked once into a cache; `.zst` and the index cache are not); **on-disk index cache** so a multi-GB file reopens at once.
 
 ### Phase 10 — Understand a log faster
 - [x] **Triage summary** on open: the first real error, the noisiest patterns, busiest / quietest periods, slowest requests,
