@@ -3674,3 +3674,139 @@ title = "Docker daemon not reachable"
 explanation = "The Docker CLI or a tool could not reach the daemon socket — the daemon is not running or the user lacks permission on the socket."
 causes = ["Docker service stopped or failed to start", "User not in the docker group / wrong DOCKER_HOST"]
 steps = ["Check 'systemctl status docker' (or Docker Desktop) and its logs", "Verify DOCKER_HOST and socket permissions"]
+
+# ---------------------------------------------------------------- Sysmon, PowerShell, Defender, Task Scheduler
+# src: https://learn.microsoft.com/sysinternals/downloads/sysmon
+# src: https://learn.microsoft.com/powershell/scripting/windows-powershell/wmf/whats-new/script-logging
+# src: https://learn.microsoft.com/microsoft-365/security/defender-endpoint/troubleshoot-microsoft-defender-antivirus
+# src: https://learn.microsoft.com/windows/win32/taskschd/task-scheduler-start-page
+
+[[entry]]
+id = "event-sysmon-process-create"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [1]
+noise = "normal"
+title = "Sysmon: a process was created"
+explanation = "Sysmon recorded a new process with its full command line, parent process, user and file hashes."
+causes = ["Normal program start", "A script or tool launched another program"]
+steps = ["Check the parent image and command line for unexpected shells (cmd, powershell, wscript)", "Look up the file hash if the program is unknown"]
+
+[[entry]]
+id = "event-sysmon-network-connect"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [3]
+noise = "normal"
+title = "Sysmon: a network connection was made"
+explanation = "A process opened a TCP or UDP connection; Sysmon records source, destination, port and the process image."
+causes = ["Normal application traffic", "Malware beaconing or data transfer"]
+steps = ["Check whether the process normally talks to that destination", "Compare the destination with threat intelligence if it is unfamiliar"]
+
+[[entry]]
+id = "event-sysmon-image-load"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [7]
+noise = "benign"
+title = "Sysmon: a module (DLL) was loaded"
+explanation = "A process loaded a DLL. Very frequent; useful mainly to spot unsigned or unusual modules."
+causes = ["Normal program start-up"]
+steps = ["Filter by unsigned images or unusual paths such as Temp or AppData"]
+
+[[entry]]
+id = "event-sysmon-remote-thread"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [8]
+noise = "important"
+title = "Sysmon: a remote thread was created"
+explanation = "One process started a thread inside another process, a technique used by code injection."
+causes = ["Malware injecting into a legitimate process", "Some debuggers, security tools and game anti-cheat software"]
+steps = ["Identify the source and target images", "Treat it as suspicious unless the source is a known security or debugging tool"]
+
+[[entry]]
+id = "event-sysmon-process-access"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [10]
+noise = "important"
+title = "Sysmon: a process opened another process"
+explanation = "A process requested access to another process's memory, which credential-stealing tools do against lsass.exe."
+causes = ["Credential dumping (target lsass.exe)", "Antivirus or monitoring tools"]
+steps = ["Check the target image and the granted access mask", "If the target is lsass.exe and the source is unknown, investigate at once"]
+
+[[entry]]
+id = "event-sysmon-file-create"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [11]
+noise = "normal"
+title = "Sysmon: a file was created"
+explanation = "A process created or overwrote a file."
+causes = ["Normal application writes", "Malware dropping a payload"]
+steps = ["Look for executables or scripts created in user-writable folders"]
+
+[[entry]]
+id = "event-sysmon-registry"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [12, 13, 14]
+noise = "normal"
+title = "Sysmon: a registry key or value changed"
+explanation = "A process created, modified or renamed a registry key or value."
+causes = ["Normal configuration changes", "Persistence set up under Run keys or services"]
+steps = ["Check Run, RunOnce and Services keys and who wrote them"]
+
+[[entry]]
+id = "event-sysmon-dns"
+providers = ["Microsoft-Windows-Sysmon"]
+event_ids = [22]
+noise = "normal"
+title = "Sysmon: a DNS query was made"
+explanation = "A process looked up a host name."
+causes = ["Normal name resolution", "Malware contacting a command server"]
+steps = ["Check unusual or randomly looking domain names"]
+
+[[entry]]
+id = "event-powershell-script-block"
+providers = ["Microsoft-Windows-PowerShell"]
+event_ids = [4104]
+noise = "normal"
+title = "PowerShell script block logging"
+explanation = "PowerShell recorded the text of a script block that ran. Shows what was actually executed, including decoded content."
+causes = ["Administration scripts", "Obfuscated malicious scripts"]
+steps = ["Look for Invoke-Expression, DownloadString, -EncodedCommand or heavy obfuscation"]
+
+[[entry]]
+id = "event-powershell-pipeline"
+providers = ["Microsoft-Windows-PowerShell"]
+event_ids = [4103]
+noise = "benign"
+title = "PowerShell pipeline execution details"
+explanation = "Module logging: details of the commands run in a pipeline, with parameter values."
+causes = ["Normal PowerShell use"]
+steps = ["Use together with the 4104 script block events"]
+
+[[entry]]
+id = "event-powershell-engine"
+providers = ["PowerShell"]
+event_ids = [400, 403, 600]
+noise = "benign"
+title = "PowerShell engine started / stopped / provider started"
+explanation = "The PowerShell engine changed state. Classic log entries from every PowerShell session."
+causes = ["Normal PowerShell use"]
+steps = ["Check the HostApplication in the message for unexpected hosts"]
+
+[[entry]]
+id = "event-taskscheduler-started"
+providers = ["Microsoft-Windows-TaskScheduler"]
+event_ids = [100, 110, 129]
+noise = "benign"
+title = "A scheduled task started"
+explanation = "The Task Scheduler started a task (100), or a user triggered it (110), or created the task process (129)."
+causes = ["Normal scheduled work"]
+steps = ["Use with 102 / 201 events to see how the task finished"]
+
+[[entry]]
+id = "event-taskscheduler-finished"
+providers = ["Microsoft-Windows-TaskScheduler"]
+event_ids = [102, 201, 203]
+noise = "normal"
+title = "A scheduled task finished or failed to start"
+explanation = "102 / 201: the task finished (look at the result code). 203: the action could not be started."
+causes = ["A non-zero result code means the program failed", "The program path or account is wrong or missing"]
+steps = ["Check the result code in the message", "Verify the task's program path and the account it runs as"]

@@ -8,11 +8,10 @@
 **Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
-> **Hand-off (resume point):** v0.2.0 is released. Done and committed since: Phases 10, 11, 12 and 13 (CLI + digests for folders,
-> Script page, plugins with approval; docs in `docs/plugins`). Next: **Phase 14** (performance counters overlay, Sysmon/PowerShell/
-> Defender/Task Scheduler explanations + ForwardedEvents, personal-data scan with masked export), then the Phase 9 leftovers
-> (9.4 SMB, 9.6 WSL/SSH, 9.7 receivers, 9.8 cloud, 9.9 .gz + index cache). Digests of servers/containers are not done yet.
-> Gate: `.venv\Scripts\python.exe -m ruff check/format`, `mypy loglens`, `pytest` (1540 passed). Release only when the user asks.
+> **Hand-off (resume point):** v0.2.0 is released. Done and committed since: Phases 10-13, and in Phase 14 the personal-data scan and
+> Sysmon / PowerShell / Task Scheduler knowledge entries. Next: Phase 14 leftovers (performance counters overlay, ForwardedEvents
+> channel), then the Phase 9 leftovers (9.4 SMB, 9.6 WSL/SSH, 9.7 receivers, 9.8 cloud, 9.9 .gz + index cache). Digests of
+> servers/containers are not done yet. Gate: ruff check/format, `mypy loglens`, `pytest` via `.venv\Scripts\python.exe`. Release only when the user asks.
 
 **Contents**
 1. [Vision](#1-vision) — who it is for and the problems it solves
@@ -506,9 +505,9 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 
 ### Phase 14 — Windows-specific depth
 - [ ] **Performance counters** (CPU, memory, disk, network) overlaid on the log timeline, locally and from servers.
-- [ ] **More Windows sources**: Sysmon, PowerShell, Defender and Task Scheduler logs with their own explanations in the
+- [~] **More Windows sources** (Sysmon, PowerShell and Task Scheduler explanations are in; ForwardedEvents / WEF collectors not yet): Sysmon, PowerShell, Defender and Task Scheduler logs with their own explanations in the
       knowledge base; **Windows Event Forwarding** collectors (ForwardedEvents).
-- [ ] **Personal-data scan**: find and report personal data in logs (names, e-mail addresses, card numbers, tokens) for
+- [x] **Personal-data scan** (Analyze → Personal data scan; masked report, masking via the share-safe copy): find and report personal data in logs (names, e-mail addresses, card numbers, tokens) for
       compliance reviews, with a masked export.
 
 ### Later / ideas

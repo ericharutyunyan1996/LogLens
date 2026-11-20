@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from ..core.http import ERROR_STATUS_MIN, HttpSummary, Transaction, pair_transactions, parse_lines, summarize
 from ..core.patterns import Pattern, PatternDiff, compare, mine, template_regex
+from ..core.pii import KINDS, Finding, render, scan
 from ..core.triage import Triage, render_markdown, triage
 from ..services.analysis_jobs import (
     AnalysisScope,
@@ -457,6 +458,57 @@ class UnusualPage(AnalysisPage):
         )
 
 
+class PersonalDataPage(AnalysisPage):
+    title = "Personal data"
+    intro = (
+        "Finds e-mail addresses, payment card numbers (checksum-verified), IBANs, phone numbers, social security "
+        "numbers, IP addresses and secrets, for compliance reviews. Examples are masked. Names and free text are not "
+        "found. Use File → Save a share-safe copy to mask what is found."
+    )
+
+    def __init__(self, tab: LogTab, parent: QWidget | None = None) -> None:
+        super().__init__(tab, parent)
+        self._found: dict[str, Finding] = {}
+        self.tree = make_tree(["Kind", "Occurrences", "Distinct", "Lines", "First line", "Examples (masked)"], self)
+        self.tree.itemDoubleClicked.connect(lambda item, _c: self.jump(item))
+        save = QPushButton("Save report as Markdown…", self)
+        save.clicked.connect(self._save)
+        row = QHBoxLayout()
+        row.addWidget(save)
+        row.addStretch(1)
+        self.body.addWidget(self.tree, 1)
+        self.body.addLayout(row)
+
+    def analyzer(self) -> Analyzer:
+        return scan
+
+    def show_result(self, result: object) -> None:
+        assert isinstance(result, dict)
+        self._found = result
+        total = sum(f.count for f in result.values())
+        self.status.setText(f"<b>{total:,} items</b> of {len(result)} kinds" if result else "No personal data found.")
+        fill_tree(
+            self.tree,
+            [
+                make_row(
+                    [KINDS.get(k, k), f.count, len(f.distinct), f.lines, f.first_line + 1, ", ".join(f.examples)],
+                    f.first_line,
+                )
+                for k, f in result.items()
+            ],
+        )
+        self.tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
+
+    def _save(self) -> None:
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Save report", f"{self.tab.document.title} personal data.md", "Markdown (*.md)"
+        )
+        if target:
+            Path(target).write_text(
+                render(self._found, f"Personal data scan: {self.tab.document.title}"), encoding="utf-8"
+            )
+
+
 class ComparePage(AnalysisPage):
     title = "Compare"
     intro = (
@@ -535,6 +587,7 @@ PAGES: dict[str, type[AnalysisPage]] = {
     "summary": SummaryPage,
     "unusual": UnusualPage,
     "charts": ChartsPage,
+    "personal": PersonalDataPage,
     "patterns": PatternsPage,
     "fields": FieldsPage,
     "sql": SqlPage,

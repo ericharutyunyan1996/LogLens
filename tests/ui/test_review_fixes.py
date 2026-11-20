@@ -614,3 +614,13 @@ def test_an_approved_plugin_analyzer_runs_from_the_menu(
     assert shown == ["5 lines"]
     win.settings.plugin_enabled.clear()
     assert not win.reload_plugins()[0].enabled
+
+
+def test_personal_data_page_finds_values(window, wait_for) -> None:
+    win, shop, _other = window
+    analysis = AnalysisWindow(shop, win, others=win.all_tabs)
+    page = analysis.pages["personal"]
+    page.run()
+    wait_for(lambda: not page.busy and bool(page.status.text()))
+    assert page.status.text() == "No personal data found."
+    analysis.shutdown()
