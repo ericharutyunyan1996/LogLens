@@ -6,22 +6,27 @@ then renders the result. Clicking a row jumps to the line in the log; endpoints 
 
 from __future__ import annotations
 
+import html
 import re
 import threading
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSplitter,
     QTabWidget,
+    QTextBrowser,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -29,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from ..core.http import ERROR_STATUS_MIN, HttpSummary, Transaction, pair_transactions, parse_lines, summarize
 from ..core.patterns import Pattern, PatternDiff, compare, mine, template_regex
+from ..core.triage import Triage, render_markdown, triage
 from ..services.analysis_jobs import (
     AnalysisScope,
     Analyzer,
@@ -314,6 +320,141 @@ class PatternsPage(AnalysisPage):
             self.aggregateRequested.emit(chosen, self.scope.currentData().description)
 
 
+class SummaryPage(AnalysisPage):
+    title = "Summary"
+    intro = (
+        "One page about the log: how many errors, the first one, the most frequent ones, the busiest and quietest "
+        "periods, the slowest requests, and what to look at first. Every line number is a link."
+    )
+
+    def __init__(self, tab: LogTab, parent: QWidget | None = None) -> None:
+        super().__init__(tab, parent)
+        self._result: Triage | None = None
+        self.view = QTextBrowser(self)
+        self.view.setOpenLinks(False)
+        self.view.anchorClicked.connect(self._link)
+        export = QPushButton("Save as Markdown…", self)
+        export.clicked.connect(self._export)
+        copy = QPushButton("Copy", self)
+        copy.clicked.connect(self._copy)
+        row = QHBoxLayout()
+        row.addWidget(export)
+        row.addWidget(copy)
+        row.addStretch(1)
+        self.body.addWidget(self.view, 1)
+        self.body.addLayout(row)
+
+    def analyzer(self) -> Analyzer:
+        total = self.tab.document.source.line_count()
+        scope: AnalysisScope = self.scope.currentData()
+        everything = scope.lines is None
+        return lambda lines: triage(lines, total if everything else None)
+
+    def show_result(self, result: object) -> None:
+        assert isinstance(result, Triage)
+        self._result = result
+        self.status.setText(
+            f"<b>{result.problems:,} errors</b>, {result.levels.get('Warning', 0):,} warnings "
+            f"in {result.examined:,} lines"
+            + (f" (of {result.total_lines:,}: the first {result.examined:,} were examined)" if result.truncated else "")
+        )
+        self.view.setHtml(_summary_html(result))
+
+    def _link(self, url: QUrl) -> None:
+        if url.scheme() == "line":
+            self.lineRequested.emit(int(url.path().strip("/") or 0))
+
+    def markdown(self) -> str:
+        return render_markdown(self._result, self.tab.document.title) if self._result else ""
+
+    def _copy(self) -> None:
+        if self._result:
+            QApplication.clipboard().setText(self.markdown())
+
+    def _export(self) -> None:
+        if self._result is None:
+            return
+        default = f"{self.tab.document.title} summary.md"
+        target, _ = QFileDialog.getSaveFileName(self, "Save summary", default, "Markdown (*.md)")
+        if target:
+            Path(target).write_text(self.markdown(), encoding="utf-8")
+
+
+def _link_to(line: int, label: str | None = None) -> str:
+    return f'<a href="line:///{line}">{label or f"line {line + 1:,}"}</a>'
+
+
+def _summary_html(t: Triage) -> str:
+    esc = html.escape
+    parts = ["<h3>What to look at first</h3><ul>"]
+    for note in t.look_first:
+        match = re.match(r"Line (\d[\d,]*): (.*)", note)
+        parts.append(
+            f"<li>{_link_to(int(match.group(1).replace(',', '')) - 1)}: {esc(match.group(2))}</li>"
+            if match
+            else f"<li>{esc(note)}</li>"
+        )
+    parts.append("</ul>")
+    if t.first_problem:
+        p = t.first_problem
+        when = f" ({p.time:%H:%M:%S})" if p.time else ""
+        parts.append(f"<h3>First error</h3><p>{_link_to(p.line)}{when}: <code>{esc(p.text)}</code></p>")
+    if t.problem_patterns:
+        parts.append("<h3>Most frequent errors</h3><ul>")
+        parts += [
+            f"<li><b>{p.count:,}×</b> <code>{esc(p.template[:160])}</code> ({_link_to(p.first_line)})</li>"
+            for p in t.problem_patterns
+        ]
+        parts.append("</ul>")
+    if t.noisiest:
+        parts.append("<h3>Noisiest messages</h3><ul>")
+        parts += [
+            f"<li><b>{p.count:,}×</b> <code>{esc(p.template[:160])}</code> ({_link_to(p.first_line)})</li>"
+            for p in t.noisiest
+        ]
+        parts.append("</ul>")
+    periods = [("Busiest", t.busiest), ("Quietest", t.quietest), ("Most errors", t.worst_period)]
+    rows = [
+        f"<li>{name}: {p.start:%H:%M}–{p.end:%H:%M}, {p.lines:,} lines, {p.errors:,} errors "
+        f"({_link_to(p.first_line)})</li>"
+        for name, p in periods
+        if p is not None
+    ]
+    if rows:
+        parts.append("<h3>Periods</h3><ul>" + "".join(rows) + "</ul>")
+    if t.http_requests:
+        parts.append(f"<h3>HTTP</h3><p>{t.http_requests:,} requests, {t.http_errors:,} with a 5xx status.</p><ul>")
+        parts += [f"<li>{s.duration_ms:,.0f} ms: {esc(s.endpoint)} ({_link_to(s.line)})</li>" for s in t.slowest]
+        parts.append("</ul>")
+    return "".join(parts)
+
+
+class UnusualPage(AnalysisPage):
+    title = "Unusual"
+    intro = (
+        "What changed shape: bursts of lines or errors, a kind of message that appeared late and then repeated, "
+        "and silences. Double-click to jump to where it started."
+    )
+
+    def __init__(self, tab: LogTab, parent: QWidget | None = None) -> None:
+        super().__init__(tab, parent)
+        self.tree = make_tree(["Kind", "Started", "What", "Line"], self)
+        self.tree.itemDoubleClicked.connect(lambda item, _c: self.jump(item))
+        self.body.addWidget(self.tree, 1)
+
+    def analyzer(self) -> Analyzer:
+        return triage
+
+    def show_result(self, result: object) -> None:
+        assert isinstance(result, Triage)
+        found = result.anomalies
+        self.status.setText(f"<b>{len(found)} unusual things</b>" if found else "Nothing unusual: the log is steady.")
+        fill_tree(
+            self.tree,
+            [make_row([a.kind, f"{a.time:%H:%M:%S}" if a.time else "—", a.summary, a.line + 1], a.line) for a in found],
+        )
+
+
 class ComparePage(AnalysisPage):
     title = "Compare"
     intro = (
@@ -389,6 +530,8 @@ class ComparePage(AnalysisPage):
 
 
 PAGES: dict[str, type[AnalysisPage]] = {
+    "summary": SummaryPage,
+    "unusual": UnusualPage,
     "patterns": PatternsPage,
     "fields": FieldsPage,
     "sql": SqlPage,

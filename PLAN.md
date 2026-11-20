@@ -8,6 +8,11 @@
 **Status:** v0.1.0 is released (signed MSI + portable build). Phases 0–8 are done apart from the open items marked
 `[ ]` / `[~]` below (a few extra formats, an update check). The suite has 1,100+ tests; ruff, mypy and the full `pytest` run are clean.
 
+> **Hand-off (resume point):** v0.2.0 (remote servers, Docker/Kubernetes, Diagnose a server) is committed, pushed and tagged
+> (release workflow builds the signed MSI). **Phase 10 is done** (Summary, Unusual, Ask in plain words). Next: **Phase 11** (charts from any field, trace view, compare two runs),
+> then Phases 12, 13, 14, then the Phase 9 leftovers (9.4, 9.6-9.9). Quality gate: `.venv\Scripts\python.exe -m ruff
+> check/format`, `mypy loglens`, `pytest`. Commit per finished phase; release (version bump + tag) only when the user asks.
+
 **Contents**
 1. [Vision](#1-vision) — who it is for and the problems it solves
 2. [Feature pillars](#2-feature-pillars) — P1–P9, what each area covers
@@ -473,11 +478,12 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 - [ ] 9.9 **Compressed logs** (`.gz`, then `.zst`) opened directly; **on-disk index cache** so a multi-GB file reopens at once.
 
 ### Phase 10 — Understand a log faster
-- [ ] **Triage summary** on open: the first real error, the noisiest patterns, busiest / quietest periods, slowest requests,
+- [x] **Triage summary** on open: the first real error, the noisiest patterns, busiest / quietest periods, slowest requests,
       "what to look at first" (one page, exportable).
-- [ ] **Ask in plain words**: a sentence becomes filters or SQL (local model or a configured provider; you see and edit the
-      result before it runs, nothing is sent without the usual redacted preview).
-- [ ] **Anomaly highlights**: rate spikes, new kinds of message, field-value shifts, with "started at 10:42" markers on the
+- [x] **Ask in plain words** (Analyze → Ask in plain words, Ctrl+Shift+A): a sentence becomes levels, include / exclude words and a
+      time range, offline and rule based; every part is explained and editable in the filter panel. (An AI-assisted wording
+      for sentences the rules do not understand is a later option.)
+- [x] **Anomaly highlights**: rate spikes, new kinds of message, field-value shifts, with "started at 10:42" markers on the
       timeline.
 
 ### Phase 11 — See it visually

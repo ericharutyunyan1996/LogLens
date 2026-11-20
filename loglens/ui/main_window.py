@@ -81,6 +81,8 @@ LOG_FILTER = (
 # (page key, menu text, shortcut). No Ctrl+Alt+letter shortcuts anywhere: on Windows AltGr is Ctrl+Alt, and
 # AltGr+letter types characters (@ € µ on German, ą ć ó on Polish layouts …) that a shortcut would swallow.
 ANALYSIS_ACTIONS = (
+    ("summary", "&Summary (what to look at first)…", "Ctrl+Shift+U"),
+    ("unusual", "&Unusual (spikes, new messages)…", ""),
     ("patterns", "&Patterns…", "Ctrl+Shift+N"),
     ("compare", "&Compare (what changed?)…", ""),
     ("fields", "&Fields (value counts)…", ""),
@@ -432,6 +434,8 @@ class MainWindow(QMainWindow):
         kb = self.analyze_menu.addAction("&Knowledge base…", self.open_knowledge_base)
         kb.setShortcut("Ctrl+Shift+K")
         self.analyze_menu.addAction("&Diagnose a computer…", self.open_diagnosis)
+        ask = self.analyze_menu.addAction("&Ask in plain words…", self.ask_in_plain_words)
+        ask.setShortcut("Ctrl+Shift+A")
         self.watch_menu = mb.addMenu("&Watch")
         self.watch_menu.aboutToShow.connect(lambda: self.watch.fill_menu(self.watch_menu))
         self.watch.fill_menu(self.watch_menu)
@@ -676,6 +680,31 @@ class MainWindow(QMainWindow):
         self._refresh_recent()
         self._update_ui()
         tab.main_view.setFocus()
+
+    def ask_in_plain_words(self) -> None:
+        """A sentence becomes the current log's filter (levels, words to include / exclude, a time range)."""
+        from ..core.packs import SavedFilter  # noqa: PLC0415
+        from ..core.timeparse import parse_line_time  # noqa: PLC0415
+        from .plain_search_dialog import PlainSearchDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        tab = self.current_tab()
+        if tab is None:
+            return
+        total = tab.document.source.line_count()
+        last = next(
+            (
+                m
+                for line in reversed(tab.document.source.get_lines(max(total - 50, 0), 50))
+                if (m := parse_line_time(line))
+            ),
+            None,
+        )
+        dialog = PlainSearchDialog(last, self)
+        if not exec_dialog(dialog):
+            return
+        query, panel = dialog.query, tab.filter_panel
+        panel.set_time_range(query.time_range)
+        panel.apply_saved(SavedFilter("Plain words", tuple(query.terms), tuple(query.levels)))
 
     def open_diagnosis(self) -> None:
         from .diagnose_dialog import DiagnoseDialog  # noqa: PLC0415 - dialog module only needed on demand

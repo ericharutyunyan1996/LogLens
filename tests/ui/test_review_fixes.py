@@ -457,3 +457,24 @@ def test_diagnosis_details_follow_a_theme_switch(
     monkeypatch.setattr(Inspector, "palette_for_theme", staticmethod(lambda: replace(LIGHT, muted="#123456")))
     QApplication.sendEvent(dialog, QEvent(QEvent.Type.PaletteChange))
     assert "#123456" in dialog.details.toHtml()
+
+
+# ---- summary and unusual pages --------------------------------------------------------------------------------------
+def test_summary_and_unusual_pages_run_and_link_to_lines(window, wait_for: Callable[..., None]) -> None:
+    win, shop, _other = window
+    analysis = AnalysisWindow(shop, win, others=win.all_tabs, show_tab=win.tabs.setCurrentWidget)
+    summary, unusual = analysis.pages["summary"], analysis.pages["unusual"]
+    summary.run()
+    wait_for(lambda: bool(summary.view.toPlainText()))
+    assert "What to look at first" in summary.view.toPlainText() and "lines" in summary.status.text()
+    assert summary.markdown().startswith("# ")
+    jumped: list[int] = []
+    summary.lineRequested.connect(jumped.append)
+    from PySide6.QtCore import QUrl
+
+    summary._link(QUrl("line:///2"))
+    assert jumped == [2]
+    unusual.run()
+    wait_for(lambda: not unusual.busy)
+    assert unusual.status.text()
+    analysis.shutdown()
