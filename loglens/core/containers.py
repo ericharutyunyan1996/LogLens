@@ -272,3 +272,8 @@ def kubernetes_sources(
         title = f"k8s {label}" + (" (previous)" if previous else "")
         sources.append(LogSource("kubernetes", title, tuple(_kubectl(context, *args)), follow and not previous))
     return sources
+
+
+def run_logs(source: LogSource, runner: Runner = subprocess.run, timeout: float = 120.0) -> str:
+    """The finished (non-following) output of a log source: for digests and checks, not for live tabs."""
+    return _run(source.argv, runner, timeout)

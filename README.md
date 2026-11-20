@@ -10,7 +10,7 @@ A fast log viewer and analyzer for Windows: huge files, live tail, powerful filt
 Docker / Kubernetes / WSL / SSH sources, an offline knowledge base that explains errors, and an optional AI assistant
 that can run **entirely on your own computer**.
 
-[![Release](https://img.shields.io/github/v/release/ericharutyunyan1996/LogLens?style=flat-square)](https://github.com/ericharutyunyan1996/LogLens/releases/latest)
+[![Release](https://img.shields.io/github/v/release/ericharutyunyan1996/LogLens?style=flat-square&cacheSeconds=300&display_name=tag)](https://github.com/ericharutyunyan1996/LogLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square)
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?style=flat-square)

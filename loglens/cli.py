@@ -92,6 +92,8 @@ def parser() -> argparse.ArgumentParser:
         metavar="CHANNEL",
         help="Windows event log channel (repeatable), e.g. System",
     )
+    g.add_argument("--docker", action="append", default=[], metavar="CONTAINER", help="Docker container (repeatable)")
+    g.add_argument("--kube", action="append", default=[], metavar="NAMESPACE/POD", help="Kubernetes pod (repeatable)")
     g.add_argument("--server", help="read --events from a server saved in LogLens (File → Servers)")
     g.add_argument("--state", help="file that remembers what was reported (default: in %%LOCALAPPDATA%%\\LogLens)")
     g.add_argument("--webhook", help="https URL to post the digest to (Slack, Teams, …)")
@@ -168,8 +170,11 @@ def _mail_settings(args: argparse.Namespace) -> notify.MailSettings:
 def cmd_digest(args: argparse.Namespace) -> int:
     state_path = Path(args.state) if args.state else _default_state()
     state = digest_module.load_state(state_path)
-    if not args.paths and not args.events:
-        print("loglens: give log files or folders, or --events CHANNEL.", file=sys.stderr)
+    if not (args.paths or args.events or args.docker or args.kube):
+        print(
+            "loglens: give log files or folders, --events CHANNEL, --docker NAME or --kube NAMESPACE/POD.",
+            file=sys.stderr,
+        )
         return EXIT_ERROR
     digest = digest_module.build(args.paths, state)
     if args.events:
@@ -188,6 +193,11 @@ def cmd_digest(args: argparse.Namespace) -> int:
     if not args.no_mask:
         masker = SecretMasker()
         text = "\n".join(masker.mask_line(line) for line in text.splitlines())
+    for names, kube in ((args.docker, False), (args.kube, True)):
+        if names:
+            extra_logs = digest_module.build_container_logs(names, state, kubernetes=kube)
+            digest.files += extra_logs.files
+            digest.problems += extra_logs.problems
     failures: list[str] = []
     if digest.has_news or not args.only_if_news:
         if args.webhook:

@@ -10,7 +10,7 @@
 
 > **Hand-off (resume point):** v0.3.1 is released (tag v0.3.1; 0.3.0 had clashing hotkeys; the workflow builds the signed MSI). Everything through Phase 13, most of
 > Phase 14 and Phase 9 (except below) is done. Still open: performance counters overlay, ForwardedEvents (WEF), SMB saved
-> credentials + rotation-safe polling (9.4), Azure Monitor / CloudWatch (9.8), .zst + index cache (9.9), container digests.
+> credentials + rotation-safe polling (9.4), Azure Monitor / CloudWatch (9.8), .zst + index cache (9.9), (container digests done: `digest --docker NAME`, `--kube NS/POD`).
 > Gate: ruff check/format, `mypy loglens`, `pytest` via `.venv\Scripts\python.exe`.
 
 **Contents**

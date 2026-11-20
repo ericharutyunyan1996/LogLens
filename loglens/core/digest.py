@@ -9,12 +9,16 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from .text_source import TextLogSource
 from .triage import TOP, triage
+from .winevent.remote import ServerProfile
 
 log = logging.getLogger(__name__)
 LOG_SUFFIXES = {".log", ".txt", ".out", ".err", ".json", ".jsonl"}
@@ -139,8 +143,8 @@ def build_events(
     channels: list[str],
     state: dict[str, int],
     *,
-    server: object | None = None,
-    reader: object | None = None,
+    server: ServerProfile | None = None,
+    reader: Callable[..., Any] | None = None,
     now: datetime | None = None,
     first_period: timedelta = timedelta(hours=24),
 ) -> Digest:
@@ -160,10 +164,10 @@ def build_events(
     for channel in channels:
         key = f"event:{where}:{channel}"
         since = datetime.fromtimestamp(state[key]).astimezone() if key in state else moment - first_period
-        query = EventQuery(channel, since=since, until=moment, levels=(1, 2, 3), max_events=20_000, server=server)  # type: ignore[arg-type]
+        query = EventQuery(channel, since=since, until=moment, levels=(1, 2, 3), max_events=20_000, server=server)
         label = f"{where}: {channel}"
         try:
-            events = list(read(query))  # type: ignore[operator]
+            events = list(read(query))
         except EventLogError as exc:
             digest.problems.append(f"{label}: {exc}")
             continue
@@ -181,6 +185,67 @@ def build_events(
                 if first
                 else "",
                 [(n, name) for name, n in counts.most_common(TOP)],
+            )
+        )
+    return digest
+
+
+def build_container_logs(
+    names: list[str],
+    state: dict[str, int],
+    *,
+    kubernetes: bool = False,
+    runner: Callable[..., Any] | None = None,
+    now: datetime | None = None,
+    first_period: timedelta = timedelta(hours=24),
+) -> Digest:
+    """Digest of the new log lines of Docker containers (or, with ``kubernetes``, ``namespace/pod`` names).
+
+    Reads through the user's own ``docker`` / ``kubectl``; ``state`` remembers when each was last read.
+    """
+
+    from . import containers  # noqa: PLC0415
+
+    moment = now or datetime.now().astimezone()
+    digest = Digest(moment)
+    for name in names:
+        key = f"{'k8s' if kubernetes else 'docker'}:{name}"
+        seconds = max(60, int(moment.timestamp()) - state[key]) if key in state else int(first_period.total_seconds())
+        since = f"{min(max(1, seconds // 60), 9999)}m"  # the logs tools take whole minutes (at most about a week)
+        try:
+            if kubernetes:
+                namespace, _, pod = name.partition("/")
+                if not pod:
+                    raise containers.ContainerError(f"'{name}' should look like namespace/pod.")
+                found = [
+                    p
+                    for p in containers.list_pods("", namespace, runner=runner or __import__("subprocess").run)
+                    if p.name == pod
+                ]
+                if not found:
+                    raise containers.ContainerError(f"Pod '{name}' was not found.")
+                sources = containers.kubernetes_sources("", found[0], since=since, follow=False, tail=None)
+            else:
+                box = containers.Container(name, name, "", "", "")
+                sources = [containers.docker_source(box, since=since, follow=False, tail=None)]
+            lines: list[str] = []
+            for source in sources:
+                lines += containers.run_logs(source, runner or subprocess.run).splitlines()
+        except containers.ContainerError as exc:
+            digest.problems.append(f"{name}: {exc}")
+            continue
+        state[key] = int(moment.timestamp())
+        result = triage(enumerate(lines), len(lines))
+        digest.files.append(
+            FileDigest(
+                name,
+                len(lines),
+                result.problems,
+                result.levels.get("Warning", 0),
+                f"line {result.first_problem.line + 1}: {result.first_problem.text[:160]}"
+                if result.first_problem
+                else "",
+                [(p.count, p.template[:140]) for p in result.problem_patterns[:TOP]],
             )
         )
     return digest

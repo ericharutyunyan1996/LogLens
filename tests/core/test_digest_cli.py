@@ -232,3 +232,42 @@ def test_event_digest_counts_errors_and_remembers_the_time(tmp_path: Path) -> No
     assert asked[-1].since is not None and asked[-1].since.timestamp() == pytest.approx(
         state["event:this computer:System"], abs=5
     )
+
+
+def test_container_digest_reads_new_lines_through_docker_and_kubectl() -> None:
+    import json
+    from types import SimpleNamespace
+
+    calls: list[list[str]] = []
+    pods = json.dumps(
+        {
+            "items": [
+                {
+                    "metadata": {"namespace": "shop", "name": "api-1"},
+                    "spec": {"containers": [{"name": "app"}]},
+                    "status": {},
+                }
+            ]
+        }
+    )
+
+    def runner(argv, **_kw):
+        calls.append(list(argv))
+        if "get" in argv:
+            return SimpleNamespace(stdout=pods, stderr="", returncode=0)
+        if argv[1] == "logs" and argv[0] == "docker":
+            out = "2026-11-13T10:00:00Z INFO ok\n2026-11-13T10:00:01Z ERROR disk full\n"
+            return SimpleNamespace(stdout=out, stderr="", returncode=0)
+        if argv[0] == "kubectl":
+            return SimpleNamespace(stdout="2026-11-13T10:00:00Z ERROR crash loop\n", stderr="", returncode=0)
+        return SimpleNamespace(stdout="", stderr="No such container: x", returncode=1)
+
+    state: dict[str, int] = {}
+    docker = digest_module.build_container_logs(["web"], state, runner=runner)
+    assert docker.errors == 1 and "docker:web" in state and "--since" in calls[0]
+    kube = digest_module.build_container_logs(["shop/api-1", "bad"], state, kubernetes=True, runner=runner)
+    assert kube.errors == 1 and any("namespace/pod" in p for p in kube.problems) and "k8s:shop/api-1" in state
+    broken = digest_module.build_container_logs(
+        ["x"], {}, runner=lambda argv, **_k: SimpleNamespace(stdout="", stderr="No such container: x", returncode=1)
+    )
+    assert broken.problems and "docker:x" not in state
