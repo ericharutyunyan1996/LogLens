@@ -44,6 +44,7 @@ from ..core.elevation import elevation_is_safe, is_admin, relaunch_elevated
 from ..core.encoding import KNOWN_ENCODINGS
 from ..core.formats import FormatError, LogFormat
 from ..core.highlight import HighlightRule
+from ..core.incident import Incident
 from ..core.timeline import TimelineSource
 from ..core.websearch import query_parts
 from ..core.winevent.reader import EventQuery
@@ -61,6 +62,7 @@ from .eventlog_dialog import EventLogDialog
 from .format_dialog import PREVIEW_LINES, FormatDialog
 from .highlighter_dialog import HighlighterDialog
 from .icons import dot_pixmap, logo_icon, logo_pixmap, themed_icon
+from .incident_window import IncidentWindow
 from .log_tab import LogTab
 from .log_view import monospace_font
 from .multi_dialogs import FindAllDialog, TimelineDialog
@@ -142,6 +144,7 @@ class MainWindow(QMainWindow):
         self._diagnosis: DiagnoseDialog | None = None
         self._trace_dialog: QDialog | None = None
         self._rundiff: RunDiffDialog | None = None
+        self._incident: IncidentWindow | None = None
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
         self.knowledge = KnowledgeService(parent=self)
@@ -444,6 +447,9 @@ class MainWindow(QMainWindow):
         kb = self.analyze_menu.addAction("&Knowledge base…", self.open_knowledge_base)
         kb.setShortcut("Ctrl+Shift+K")
         self.analyze_menu.addAction("&Diagnose a computer…", self.open_diagnosis)
+        pin = self.analyze_menu.addAction("Add selected lines to the &incident", self.pin_to_incident)
+        pin.setShortcut("Ctrl+Shift+I")
+        self.analyze_menu.addAction("&Incident…", self.open_incident)
         self.analyze_menu.addAction("&Trace an id across logs…", self.open_trace, "Ctrl+Shift+T")
         self.analyze_menu.addAction("Compare two &runs side by side…", self.open_rundiff)
         ask = self.analyze_menu.addAction("&Ask in plain words…", self.ask_in_plain_words)
@@ -738,6 +744,46 @@ class MainWindow(QMainWindow):
         job.finished.connect(finished)
         job.failed.connect(failed)
         job.run(tab.document.source, Path(target), dialog.pseudonymizer(), mapping)
+
+    def _incident_window(self) -> IncidentWindow:
+        if self._incident is None:
+            self._incident = IncidentWindow(Incident(), self.show_incident_line, self)
+        return self._incident
+
+    def open_incident(self) -> None:
+        window = self._incident_window()
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def pin_to_incident(self) -> None:
+        """Pin the selected lines of the current log to the incident (opens it so the user sees them land)."""
+        tab = self.current_tab()
+        if tab is None:
+            return
+        first, last = tab.selected_range()
+        if first < 0:
+            self.statusBar().showMessage("Select the lines to pin first.", 5000)
+            return
+        lines = [(n, tab.document.source.get_full_line(n)) for n in range(first, last + 1)]
+        window = self._incident_window()
+        added = window.pin(tab.document.title, tab.document.path, lines)
+        self.statusBar().showMessage(f"Pinned {added} line{'s' if added != 1 else ''} to the incident.", 5000)
+        self.open_incident()
+
+    def show_incident_line(self, path: str, source: str, line: int) -> None:
+        """Jump to a pinned line: switch to its tab, or open the file again when it was closed."""
+        for tab in self.all_tabs():
+            if (path and tab.document.path.lower() == path.lower()) or (not path and tab.document.title == source):
+                self.show_line_in_tab(tab, line)
+                return
+        if path and Path(path).exists():
+            self.open_file(path)
+            opened = self.current_tab()
+            if opened is not None:
+                self.show_line_in_tab(opened, line)
+        else:
+            self.statusBar().showMessage(f"{source} is not open and its file was not found.", 8000)
 
     def open_rundiff(self) -> None:
         from .rundiff_dialog import RunDiffDialog  # noqa: PLC0415 - dialog module only needed on demand

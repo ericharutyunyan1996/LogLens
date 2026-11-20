@@ -492,7 +492,7 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 - [x] **Compare two runs side by side** (good run vs bad run): aligned diff of two logs or two time ranges.
 
 ### Phase 12 — Work as a team
-- [ ] **Incident builder**: pin lines to a timeline with notes and labels, export a report (extends bookmarks).
+- [x] **Incident builder**: pin lines to a timeline with notes and labels, export a report (extends bookmarks).
 - [ ] **Shared knowledge base** from a team folder or Git, with **runbooks** ("when you see X, check Y") linked to entries.
 - [x] **Share-safe copy** of a whole log with consistent pseudonyms for users, IPs and hosts.
 

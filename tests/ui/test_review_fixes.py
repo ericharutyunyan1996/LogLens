@@ -545,3 +545,25 @@ def test_rundiff_dialog_compares_two_open_logs(window, wait_for: Callable[..., N
     dialog.good.setCurrentIndex(dialog.bad.currentIndex())
     dialog.run()
     assert "different" in dialog.status.text()
+
+
+# ---- incident builder -----------------------------------------------------------------------------------------------
+def test_pin_lines_to_the_incident_and_export_a_report(window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    win, shop, _other = window
+    win.tabs.setCurrentWidget(shop)
+    shop.main_view.select_rows(1, 1) if hasattr(shop.main_view, "select_rows") else shop.main_view.go_to_row(1)
+    win.pin_to_incident()
+    incident_window = win._incident
+    assert incident_window is not None and incident_window.tree.topLevelItemCount() >= 1
+    row = incident_window.tree.topLevelItem(0)
+    row.setSelected(True)
+    incident_window.label_box.setCurrentIndex(incident_window.label_box.findData("Root cause"))
+    incident_window.label_selected()
+    assert incident_window.incident.items[0].label == "Root cause"
+    report = incident_window.report()
+    assert "Root cause" in report and "Shop" in report
+    jumped: list[tuple[str, int]] = []
+    incident_window._open_line = lambda path, source, line: jumped.append((source, line))
+    incident_window._double_clicked(incident_window.tree.topLevelItem(0), 1)
+    assert jumped
+    incident_window.hide()
