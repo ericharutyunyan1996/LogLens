@@ -494,7 +494,7 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
 ### Phase 12 — Work as a team
 - [ ] **Incident builder**: pin lines to a timeline with notes and labels, export a report (extends bookmarks).
 - [ ] **Shared knowledge base** from a team folder or Git, with **runbooks** ("when you see X, check Y") linked to entries.
-- [ ] **Share-safe copy** of a whole log with consistent pseudonyms for users, IPs and hosts.
+- [x] **Share-safe copy** of a whole log with consistent pseudonyms for users, IPs and hosts.
 
 ### Phase 13 — Automate and extend
 - [ ] **Scripting console / notebook**: SQL and Python over the open log (sandboxed, read-only on the file).

@@ -235,6 +235,11 @@ class MainWindow(QMainWindow):
             self.merge_open_logs,
             tip="Merge open logs (and Windows errors of the same period) into one time-ordered view",
         )
+        self.act_share_copy = a(
+            "Save a &share-safe copy…",
+            self.save_share_copy,
+            tip="A copy of the whole log with secrets masked and people / machines replaced by consistent pseudonyms",
+        )
         self.act_export = a(
             "&Export lines…",
             lambda: self._with_tab(lambda t: t.export_results()),
@@ -355,6 +360,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.act_merge)
         m.addAction(self.act_export)
+        m.addAction(self.act_share_copy)
         m.addAction(self.act_report)
         m.addSeparator()
         m.addAction(self.act_close)
@@ -686,6 +692,52 @@ class MainWindow(QMainWindow):
         self._refresh_recent()
         self._update_ui()
         tab.main_view.setFocus()
+
+    def save_share_copy(self) -> None:
+        """Write the current log as a copy that is safer to send to someone else."""
+        from ..services.sharecopy_jobs import ShareCopyJob  # noqa: PLC0415 - only needed on demand
+        from .sharecopy_dialog import ShareCopyDialog  # noqa: PLC0415
+
+        tab = self.current_tab()
+        if tab is None:
+            return
+        dialog = ShareCopyDialog(tab.document.title, self)
+        if not exec_dialog(dialog):
+            return
+        stem = Path(tab.document.path)
+        target, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save the share-safe copy",
+            str(stem.with_name(stem.stem + "-shareable.log")),
+            "Log text (*.log *.txt)",
+        )
+        if not target:
+            return
+        mapping = Path(target).with_suffix(".replacements.csv") if dialog.mapping.isChecked() else None
+        total = tab.document.source.line_count()
+        progress = QProgressDialog("Writing the copy…", "Cancel", 0, max(total, 1), self)
+        progress.setWindowTitle("Share-safe copy")
+        progress.setMinimumDuration(500)
+        job = ShareCopyJob(self)
+        job.progress.connect(lambda done, _total: progress.setValue(done))
+        progress.canceled.connect(job.cancel)
+
+        def finished(path: str, counts: object) -> None:
+            progress.close()
+            replaced = ", ".join(f"{n} {kind}" for kind, n in dict(counts).items()) or "nothing to replace"  # type: ignore[call-overload]
+            self.statusBar().showMessage(
+                f"Saved {Path(path).name}: replaced {replaced}. Check it before sharing.", 15000
+            )
+            job.deleteLater()
+
+        def failed(message: str) -> None:
+            progress.close()
+            QMessageBox.warning(self, APP_NAME, message)
+            job.deleteLater()
+
+        job.finished.connect(finished)
+        job.failed.connect(failed)
+        job.run(tab.document.source, Path(target), dialog.pseudonymizer(), mapping)
 
     def open_rundiff(self) -> None:
         from .rundiff_dialog import RunDiffDialog  # noqa: PLC0415 - dialog module only needed on demand
