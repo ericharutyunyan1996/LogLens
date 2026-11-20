@@ -66,3 +66,16 @@ def test_an_engine_that_is_down_is_explained_in_the_dialog(qapp: QApplication, m
     monkeypatch.setattr(containers, "list_containers", down)
     d = ContainersDialog()
     settle(qapp, lambda: "not running" in d.docker_note.text())
+
+
+def test_linux_hosts_dialog_builds_sources_and_rejects_bad_values(qapp: QApplication) -> None:
+    from loglens.ui.linuxhosts_dialog import LinuxHostsDialog
+
+    d = LinuxHostsDialog()
+    d.where.setCurrentIndex(d.where.findData("ssh"))
+    d.host.setText("web1.example.com")
+    d.target.setText("/var/log/app.log")
+    assert d.source().argv[-2:] == ("web1.example.com", "tail -n 1000 -F /var/log/app.log")
+    d.host.setText("-oProxyCommand=x")
+    d.accept()
+    assert "not a valid" in d.problem_label.text() and d.result() == 0

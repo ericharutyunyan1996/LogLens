@@ -12,6 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 from ..core.containers import NO_WINDOW, ContainerError, LogSource, explain_failure, find_tool
+from ..core.linuxhosts import explain_ssh_failure
 
 log = logging.getLogger(__name__)
 STOP_WAIT_S = 3.0
@@ -85,7 +86,12 @@ class ContainerStreamer(QObject):
         if self._stopping.is_set():
             return
         if code != 0:
-            self.failed.emit(explain_failure(self.source.argv[0], " ".join(last)))
+            tail = " ".join(last)
+            self.failed.emit(
+                explain_ssh_failure(tail)
+                if self.source.argv[0] == "ssh"
+                else explain_failure(self.source.argv[0], tail)
+            )
         else:
             self.ended.emit()
 

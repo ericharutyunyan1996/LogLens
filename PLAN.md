@@ -11,7 +11,7 @@
 > **Hand-off (resume point):** v0.2.0 is released; everything after it is committed and pushed (HEAD: receivers). Done: Phases 10-13,
 > Phase 14 personal-data scan and Sysmon / PowerShell / Task Scheduler explanations, 9.7 receivers, 9.9 .gz opening.
 > Still open: Phase 14 performance counters overlay and ForwardedEvents (WEF); 9.4 SMB (UNC paths open already, no saved
-> credentials / rotation-safe polling yet); 9.6 WSL / SSH sources; 9.8 cloud connectors; 9.9 .zst + index cache; digests for
+> credentials / rotation-safe polling yet); 9.8 cloud connectors; 9.9 .zst + index cache; digests for
 > servers and containers. Gate: ruff check/format, `mypy loglens`, `pytest` (1554 passed) via `.venv\Scripts\python.exe`.
 > Release (version bump + tag) only when the user asks.
 
@@ -473,7 +473,7 @@ Everything is agentless: it uses what is already on the machines (the Windows Ev
       `kind` clusters just work): pick containers or pods (namespaces, containers, previous / crashed instance), live follow,
       time and tail limits, timestamps kept, one live tab per source (merging several tabs is the existing timeline merge).
       No credentials are stored by LogLens. Verified against Docker Desktop and a `kind` cluster.
-- [ ] 9.6 **WSL and Linux hosts**: `wsl.exe` and `ssh.exe` (built into Windows) as live sources: tail files, `journalctl -f`.
+- [x] 9.6 **WSL and Linux hosts** (File → WSL & Linux hosts): `wsl.exe` and `ssh.exe` (built into Windows) as live sources: tail files, `journalctl -f`.
 - [x] 9.7 **Receivers** (File → Receive logs): syslog (UDP / TCP) and an HTTP endpoint, so servers and apps can push logs to LogLens.
 - [ ] 9.8 **Cloud and log platforms**: Azure Monitor / Application Insights, AWS CloudWatch Logs, Grafana Loki, Elasticsearch,
       read through each service's own sign-in; queries limited by time and size.

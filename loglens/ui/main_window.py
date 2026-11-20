@@ -216,6 +216,11 @@ class MainWindow(QMainWindow):
             icon="events",
         )
         self.act_events.setIconText("Event Logs")
+        self.act_linux = a(
+            "&WSL && Linux hosts…",
+            self.open_linux_host,
+            tip="Follow a log file or the journal of a WSL distribution or an SSH host",
+        )
         self.act_receive = a(
             "&Receive logs (syslog / HTTP)…",
             self.open_receiver,
@@ -379,6 +384,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_servers)
         m.addAction(self.act_containers)
         m.addAction(self.act_receive)
+        m.addAction(self.act_linux)
         m.addAction(self.act_bundle)
         self.recent_menu = m.addMenu("Open &recent")
         m.addAction(self.act_reload)
@@ -547,6 +553,13 @@ class MainWindow(QMainWindow):
         from .servers_dialog import ServersDialog  # noqa: PLC0415 - dialog module only needed on demand
 
         ServersDialog(self.settings, self).exec()
+
+    def open_linux_host(self) -> None:
+        from .linuxhosts_dialog import LinuxHostsDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        dialog = LinuxHostsDialog(self)
+        if exec_dialog(dialog):
+            self._stream_container(dialog.source())
 
     def open_receiver(self) -> None:
         from .receiver_dialog import ReceiverDialog  # noqa: PLC0415 - dialog module only needed on demand
