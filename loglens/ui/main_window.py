@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self._plugins: list[PluginInfo] = []
         self._plugin_job: Background | None = None
         self._unpack_job: Background | None = None
+        self._cloud_job: Background | None = None
         self._receivers: dict[str, Receiver] = {}
         self._find_all: FindAllDialog | None = None
         self._dashboard: QDialog | None = None
@@ -220,6 +221,11 @@ class MainWindow(QMainWindow):
             "&WSL && Linux hosts…",
             self.open_linux_host,
             tip="Follow a log file or the journal of a WSL distribution or an SSH host",
+        )
+        self.act_cloud = a(
+            "Log &platforms (Loki, Elasticsearch)…",
+            self.open_cloud,
+            tip="Read logs from Grafana Loki or Elasticsearch / OpenSearch",
         )
         self.act_receive = a(
             "&Receive logs (syslog / HTTP)…",
@@ -384,6 +390,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_servers)
         m.addAction(self.act_containers)
         m.addAction(self.act_receive)
+        m.addAction(self.act_cloud)
         m.addAction(self.act_linux)
         m.addAction(self.act_bundle)
         self.recent_menu = m.addMenu("Open &recent")
@@ -560,6 +567,36 @@ class MainWindow(QMainWindow):
         dialog = LinuxHostsDialog(self)
         if exec_dialog(dialog):
             self._stream_container(dialog.source())
+
+    def open_cloud(self) -> None:
+        from ..core.cloud import CloudError  # noqa: PLC0415
+        from .cloud_dialog import CloudDialog  # noqa: PLC0415 - dialog module only needed on demand
+
+        dialog = CloudDialog(self)
+        if not exec_dialog(dialog):
+            return
+        self.statusBar().showMessage("Querying the platform…")
+
+        def work() -> object:
+            try:
+                lines = dialog.fetch()
+            except CloudError as exc:
+                return exc
+            target = plugin_logs_dir() / f"Platform {datetime.now():%Y%m%d-%H%M%S}.log"
+            target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return (str(target), len(lines))
+
+        def done(result: object) -> None:
+            self.statusBar().clearMessage()
+            if isinstance(result, tuple):
+                path, count = result
+                self.open_file(path)
+                self.statusBar().showMessage(f"{count:,} lines read.", 8000)
+            else:
+                QMessageBox.warning(self, APP_NAME, str(result))
+
+        self._cloud_job = Background(self, done)
+        self._cloud_job.start(work)
 
     def open_receiver(self) -> None:
         from .receiver_dialog import ReceiverDialog  # noqa: PLC0415 - dialog module only needed on demand
