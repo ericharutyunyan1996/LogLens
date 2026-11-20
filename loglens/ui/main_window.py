@@ -83,6 +83,7 @@ LOG_FILTER = (
 ANALYSIS_ACTIONS = (
     ("summary", "&Summary (what to look at first)…", "Ctrl+Shift+U"),
     ("unusual", "&Unusual (spikes, new messages)…", ""),
+    ("charts", "C&harts (over time)…", "Ctrl+Shift+G"),
     ("patterns", "&Patterns…", "Ctrl+Shift+N"),
     ("compare", "&Compare (what changed?)…", ""),
     ("fields", "&Fields (value counts)…", ""),

@@ -42,6 +42,7 @@ from ..services.analysis_jobs import (
     iter_lines,
 )
 from .analysis_base import LINE_ROLE, AnalysisPage, fill_tree, make_row, make_tree
+from .analysis_charts import ChartsPage
 from .analysis_fields import FieldsPage, SqlPage
 from .payload_view import RequestResponseView
 
@@ -532,6 +533,7 @@ class ComparePage(AnalysisPage):
 PAGES: dict[str, type[AnalysisPage]] = {
     "summary": SummaryPage,
     "unusual": UnusualPage,
+    "charts": ChartsPage,
     "patterns": PatternsPage,
     "fields": FieldsPage,
     "sql": SqlPage,

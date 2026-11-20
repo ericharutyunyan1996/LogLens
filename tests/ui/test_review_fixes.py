@@ -478,3 +478,21 @@ def test_summary_and_unusual_pages_run_and_link_to_lines(window, wait_for: Calla
     wait_for(lambda: not unusual.busy)
     assert unusual.status.text()
     analysis.shutdown()
+
+
+# ---- charts page ----------------------------------------------------------------------------------------------------
+def test_charts_page_draws_counts_and_values(window, wait_for: Callable[..., None], qapp: QApplication) -> None:
+    from loglens.core.charts import ChartSpec
+
+    win, shop, _other = window
+    analysis = AnalysisWindow(shop, win, others=win.all_tabs)
+    page = analysis.pages["charts"]
+    page.run()  # counting every line
+    wait_for(lambda: page.chart_view.data is not None)
+    assert page.chart_view.data.samples == 4
+    page.set_spec(ChartSpec(source="regex", pattern="", aggregate="avg"))
+    page.run()  # a regex chart without a pattern is explained, not run
+    assert "pattern" in page.status.text().lower()
+    page.resize(700, 500)
+    assert not page.chart_view.grab().isNull()
+    analysis.shutdown()
