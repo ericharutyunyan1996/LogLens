@@ -156,3 +156,74 @@ def test_cloud_providers_explain_where_their_credentials_live(qapp: QApplication
     dialog.provider.setCurrentIndex(dialog.provider.findData(Provider.LOCAL.value))
     assert not dialog.cloud_note.isVisible()
     dialog.close()
+
+
+# ---- OK only saves settings that pass validation -------------------------------------------------------------------------
+def _dialog(monkeypatch, provider: Provider, *, enabled: bool = True, stored: dict | None = None, **fields):  # type: ignore[no-untyped-def]
+    from PySide6.QtWidgets import QMessageBox
+
+    store = FakeStore()
+    store.data = dict(stored or {})
+    store.install(monkeypatch)
+    warned: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda _p, _t, text, *_a: warned.append(text))
+    dialog = AISettingsDialog(
+        AIConfig(enabled=enabled, provider=provider, **fields), AIService(factory=lambda _c, _k: FakeProvider())
+    )
+    dialog.show()
+    return dialog, warned, store
+
+
+def test_enabled_assistant_without_a_key_cannot_be_saved(qapp: QApplication, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from PySide6.QtWidgets import QDialog
+
+    dialog, warned, _store = _dialog(monkeypatch, Provider.API_KEY)
+    assert not dialog._ok_button.isEnabled() and "No API key" in dialog._ok_button.toolTip()
+    dialog.accept()  # e.g. the Enter key
+    assert warned and "No API key" in warned[0] and "Enable the AI assistant" in warned[0]
+    assert dialog.isVisible() and dialog.result() != QDialog.DialogCode.Accepted  # still open, nothing saved
+    dialog.close()
+
+
+def test_invalid_or_empty_cloud_fields_cannot_be_saved(qapp: QApplication, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from PySide6.QtWidgets import QDialog
+
+    dialog, warned, _store = _dialog(monkeypatch, Provider.VERTEX, gcp_project="")
+    assert not dialog._ok_button.isEnabled()  # project ID missing
+    dialog.gcp_project.setText("Not A Project")
+    assert not dialog._ok_button.isEnabled()  # malformed
+    dialog.gcp_project.setText("my-project-123")
+    dialog.gcp_region.setText("mars")
+    assert not dialog._ok_button.isEnabled()  # bad region
+    dialog.gcp_region.setText("us-east5")
+    dialog.model.setCurrentText("")
+    assert (
+        not dialog._ok_button.isEnabled() and "model" in dialog._ok_button.toolTip().lower()
+    )  # an empty model is not replaced
+    dialog.model.setCurrentText("claude-opus-5-5")
+    assert dialog._ok_button.isEnabled()  # everything valid: now it can be saved
+    dialog.accept()
+    assert not warned and dialog.result() == QDialog.DialogCode.Accepted
+    assert dialog.config().model == "claude-opus-5-5" and dialog.config().gcp_project == "my-project-123"
+
+
+def test_a_typed_key_that_was_not_saved_blocks_saving(qapp: QApplication, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    dialog, _warned, store = _dialog(monkeypatch, Provider.API_KEY)
+    dialog.api_key.setText("sk-ant-api03-" + "k" * 30)
+    assert not dialog._ok_button.isEnabled() and "Save key" in dialog._ok_button.toolTip()  # typed, not stored
+    dialog._save_key()  # the user clicks Save key
+    assert store.data.get("anthropic-api-key")
+    dialog._invalidate_status()
+    assert dialog._ok_button.isEnabled()
+    dialog.close()
+
+
+def test_a_switched_off_assistant_can_be_saved_with_empty_fields(qapp: QApplication, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from PySide6.QtWidgets import QDialog
+
+    dialog, warned, _store = _dialog(monkeypatch, Provider.VERTEX, enabled=False, gcp_project="")
+    assert dialog._ok_button.isEnabled()
+    dialog.accept()
+    assert not warned and dialog.result() == QDialog.DialogCode.Accepted
+    dialog.enabled.setChecked(True)  # ... but switching it on requires complete settings again
+    assert not dialog._ok_button.isEnabled()

@@ -24,6 +24,7 @@ from xml.parsers.expat import ExpatError
 PAGE_SIZE = 500  # children produced per request; a node with more shows "… N more" and loads the next page on demand
 MAX_STRUCTURED_CHARS = 256_000_000  # beyond this only the raw text is offered (stated to the user, never silent)
 PREVIEW_CHARS = 120  # characters of a scalar shown in the tree before "…" (the full value is one click / copy away)
+COLLAPSE_CHARS = 10_000  # a payload bigger than this is shown collapsed (Inspector card, tree): open on demand
 AUTO_EXPAND_NODES = 2_000  # a payload bigger than this opens collapsed; smaller ones expand to a readable depth
 MAX_SEARCH_HITS = 2_000
 

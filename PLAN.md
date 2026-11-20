@@ -591,6 +591,10 @@ Each entry is a decision that still holds; the *why* is in the sentence. Grouped
   a setting changes, and a failing provider is never replaced silently by another one. Saved API keys can be deleted
   (one provider's, or all), and the deletion is verified by reading the entry back; cloud identities (gcloud, AWS) are
   not stored by LogLens.
+- **Settings are saved only when valid**: with the assistant switched on, OK stays disabled (and Enter is refused, with
+  the reason) while a required field is empty or malformed or a typed key was not saved; a switched-off assistant can be
+  saved as is. Big JSON / XML open collapsed everywhere (Inspector structure view, request/response panes): the Details
+  card prints only a one-line note, and the tree expands on demand.
 
 ### Quality & process
 - Quality gate: ruff + mypy + pytest (plus pre-commit); standards live in `docs/CODING_STANDARDS.md`.

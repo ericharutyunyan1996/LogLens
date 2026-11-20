@@ -105,11 +105,13 @@ class AISettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self._ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         self._on_provider_changed()
         self._status = ProviderStatus.NOT_TESTED
         self._tested_signature: tuple[object, ...] | None = None
         for signal in self._settings_signals():
             signal.connect(self._invalidate_status)
+        self.enabled.toggled.connect(self._invalidate_status)
         self._invalidate_status()
 
     # ---- groups --------------------------------------------------------------------------------------------------
@@ -313,11 +315,14 @@ class AISettingsDialog(QDialog):
         return widget
 
     # ---- behaviour -----------------------------------------------------------------------------------------------
+    def _is_local(self) -> bool:
+        return Provider(self.provider.currentData()) is Provider.LOCAL
+
     def config(self) -> AIConfig:
         return AIConfig(
             enabled=self.enabled.isChecked(),
             provider=Provider(self.provider.currentData()),
-            model=self.model.currentText().strip() or SUGGESTED_MODELS[0],
+            model=self.model.currentText().strip() or (SUGGESTED_MODELS[0] if self._is_local() else ""),
             effort=self.effort.currentText(),
             context_before=self.before.value(),
             context_after=self.after.value(),
@@ -478,6 +483,43 @@ class AISettingsDialog(QDialog):
             self._show_status(problem.status, problem.message)
         else:
             self._show_status(ProviderStatus.NOT_TESTED, "click Test connection to verify these settings.")
+        self._update_ok()
+
+    def _save_problem(self) -> TestResult | None:
+        """Why these settings cannot be saved yet, or None. Only an ENABLED assistant needs complete settings: an
+        incomplete or malformed configuration is never stored as if it were usable."""
+        if not self.enabled.isChecked():
+            return None
+        config = self.config()
+        stored: str | None = None
+        if config.needs_api_key:
+            try:
+                stored = credentials.load_secret(secret_name(config))
+            except OSError:
+                stored = None
+            if not stored and self.api_key.text().strip():
+                return TestResult(
+                    ProviderStatus.INCOMPLETE, "You typed a key but have not saved it yet: click Save key."
+                )
+        return preflight(config, stored)
+
+    def _update_ok(self) -> None:
+        problem = self._save_problem()
+        self._ok_button.setEnabled(problem is None)
+        self._ok_button.setToolTip(problem.message if problem is not None else "")
+
+    def accept(self) -> None:
+        """OK saves only settings that pass validation (or an assistant that is switched off)."""
+        problem = self._save_problem()
+        if problem is not None:
+            self._show_status(problem.status, problem.message)
+            QMessageBox.warning(
+                self,
+                "AI settings can't be saved yet",
+                f"{problem.message}\n\nFix this, or untick 'Enable the AI assistant' to save without it.",
+            )
+            return
+        super().accept()
 
     @property
     def status(self) -> ProviderStatus:

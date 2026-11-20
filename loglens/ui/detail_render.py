@@ -219,8 +219,13 @@ def render_details(
     palette: Palette,
     findings: list[Finding] | None = None,
     facts: list[tuple[str, str]] | None = None,
+    *,
+    collapse_chars: int | None = None,
 ) -> tuple[str, list[Section]]:
-    """HTML for the Details tab and the list of sections addressable by ``copy:<index>``."""
+    """HTML for the Details tab and the list of sections addressable by ``copy:<index>``.
+
+    A JSON / XML section longer than ``collapse_chars`` is NOT printed: its card is one collapsed line (the
+    structured view next to it opens it on demand; "Copy" still copies all of it)."""
     parts = [_header(header, palette), render_findings(findings or [], palette), render_facts(facts or [], palette)]
     sections = analysis.located + analysis.derived
     message = _message_text(analysis)
@@ -228,6 +233,10 @@ def render_details(
         parts.append(_card("Message", html.escape(message), palette, None))
     for index, section in enumerate(sections):
         body = section.body
+        if collapse_chars is not None and section.kind in ("JSON", "XML") and len(body) > collapse_chars:
+            note = f"{len(body):,} characters, collapsed. Open it in the structure view below; Copy copies all of it."
+            parts.append(_card(section.kind, _span(palette.muted, note), palette, index))
+            continue
         truncated = len(body) > MAX_SECTION_CHARS
         rendered = highlight(section.kind, body[:MAX_SECTION_CHARS], palette)
         if truncated:

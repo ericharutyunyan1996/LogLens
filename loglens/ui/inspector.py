@@ -27,12 +27,14 @@ from PySide6.QtWidgets import (
 
 from ..core.ai.explain import Explanation
 from ..core.kb import Finding
-from ..core.payloads import Section, analyze
+from ..core.payload_tree import COLLAPSE_CHARS
+from ..core.payloads import MAX_ANALYZED_CHARS, Section, analyze
 from ..core.secrets import find_secrets, has_secrets
 from ..core.winevent.entities import extract
 from ..core.winevent.models import EventRecord, record_from_line
 from ..services.knowledge_service import KnowledgeService
 from .detail_render import DARK, LIGHT, LineHeader, Palette, render_details, render_explanation, render_secrets
+from .payload_view import PayloadStructure
 from .theme import is_dark
 
 DETAILS_PLACEHOLDER = "Select a line to inspect it — JSON, XML, URLs, SQL, tokens and fields are decoded here."
@@ -105,7 +107,12 @@ class Inspector(QWidget):
         self.raw.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.tabs = QTabWidget(self)
         self.tabs.setDocumentMode(True)
-        self.tabs.addTab(self.details, "Details")
+        self.structure = PayloadStructure(self)  # JSON / XML too big to print: a collapsed, expandable tree
+        self.details_split = QSplitter(Qt.Orientation.Vertical, self)
+        self.details_split.addWidget(self.details)
+        self.details_split.addWidget(self.structure)
+        self.details_split.setSizes([260, 420])
+        self.tabs.addTab(self.details_split, "Details")
         self.tabs.addTab(self.raw, "Raw")
         self.tabs.addTab(self._build_windows_tab(), "Windows")
         self.tabs.addTab(self._build_ai_tab(), "AI")
@@ -214,16 +221,28 @@ class Inspector(QWidget):
         if header is None:
             self._sections = []
             self.details.clear()
+            self.structure.clear()
             return
         record = record_from_line(text)
         facts = extract(record).items() if record is not None else None
-        body, self._sections = render_details(header, analyze(text), self.palette_for_theme(), findings, facts)
+        analysis = analyze(text)
+        body, self._sections = render_details(
+            header, analysis, self.palette_for_theme(), findings, facts, collapse_chars=COLLAPSE_CHARS
+        )
+        big = len(text) > MAX_ANALYZED_CHARS or any(
+            s.kind in ("JSON", "XML") and len(s.body) > COLLAPSE_CHARS for s in self._sections
+        )
+        if big:
+            self.structure.show_for(text)
+        else:
+            self.structure.clear()
         if has_secrets(text):
             body = render_secrets(find_secrets(text), self.palette_for_theme()) + body
         self.details.setHtml(body)
 
     def clear(self) -> None:
         """Empty every tab (the next selected line fills Details/Raw again)."""
+        self.structure.clear()
         self._raw = ""
         self._sections = []
         self._events = []

@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from ..core.http import Transaction
 from ..core.payload_tree import (
     AUTO_EXPAND_NODES,
+    COLLAPSE_CHARS,
     PAGE_SIZE,
     Node,
     ParsedPayload,
@@ -237,12 +238,8 @@ class PayloadTreeView(QWidget):
             )
             return
         counted = nodes if nodes is not None else parsed.count_nodes(AUTO_EXPAND_NODES + 1)
-        big = counted > AUTO_EXPAND_NODES
-        note = (
-            f"more than {AUTO_EXPAND_NODES:,} nodes: opened collapsed, expand what you need"
-            if big
-            else f"{counted:,} nodes"
-        )
+        big = counted > AUTO_EXPAND_NODES or parsed.size_chars > COLLAPSE_CHARS
+        note = "large payload: opened collapsed, expand what you need" if big else f"{counted:,} nodes"
         self.info.setText(f"<b>{parsed.kind.upper()}</b> · {size} · {note}")
         root = self._make_item(parsed.root, ())
         self.tree.addTopLevelItem(root)
@@ -571,6 +568,85 @@ class PayloadPane(QWidget):
         parsed: ParsedPayload = result[0]  # type: ignore[index]
         self.tree.set_parsed(parsed)
         self.stack.setCurrentWidget(self.tree)
+
+
+class PayloadStructure(QWidget):
+    """The structured view of the JSON / XML in a text (the Inspector shows it for payloads too big to print).
+
+    It finds and parses on the thread pool and opens collapsed (``PayloadTreeView`` decides by size), so a payload of
+    any size appears at once as its top-level keys; everything else is expanded on demand."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._slices: list[PayloadSlice] = []
+        self.title = QLabel("<b>Structure</b>", self)
+        self.choice = QComboBox(self)
+        self.choice.hide()
+        self.message = QLabel(self)
+        self.message.setTextFormat(Qt.TextFormat.PlainText)
+        self.message.setWordWrap(True)
+        self.tree = PayloadTreeView(self)
+        head = QHBoxLayout()
+        head.addWidget(self.title)
+        head.addStretch(1)
+        head.addWidget(self.choice)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.addLayout(head)
+        layout.addWidget(self.message)
+        layout.addWidget(self.tree, 1)
+        self._finder = Background(self, self._on_found)
+        self._parser = Background(self, self._on_parsed)
+        self.choice.currentIndexChanged.connect(self._show_slice)
+        self.setVisible(False)
+
+    def clear(self) -> None:
+        self._finder.cancel()
+        self._parser.cancel()
+        self._slices = []
+        self.tree.set_parsed(None)
+        self.setVisible(False)
+
+    def show_for(self, text: str) -> None:
+        """Show the structure of the payloads in ``text`` (looked up in the background)."""
+        self._parser.cancel()
+        self._slices = []
+        self.choice.hide()
+        self.tree.set_parsed(None)
+        self.message.setText("Looking for JSON / XML …")
+        self.message.show()
+        self.setVisible(True)
+        self._finder.start(lambda: find_payloads(text) or find_malformed(text))
+
+    def _on_found(self, result: object) -> None:
+        if isinstance(result, Exception) or not result:
+            self.message.setText("No JSON or XML could be read from this text; the Raw tab shows it exactly as logged.")
+            return
+        self._slices = sorted(result, key=lambda s: len(s.raw), reverse=True)  # type: ignore[call-overload]
+        self.choice.blockSignals(True)
+        self.choice.clear()
+        for number, piece in enumerate(self._slices, 1):
+            self.choice.addItem(f"{piece.kind.upper()} #{number} ({len(piece.raw):,} chars)")
+        self.choice.blockSignals(False)
+        self.choice.setVisible(len(self._slices) > 1)
+        self.choice.setCurrentIndex(0)
+        self._show_slice()
+
+    def _show_slice(self) -> None:
+        index = self.choice.currentIndex()
+        if not 0 <= index < len(self._slices):
+            return
+        piece = self._slices[index]
+        self.message.setText(f"Reading {len(piece.raw):,} characters …")
+        self.message.show()
+        self._parser.start(lambda: parse(piece.raw, piece.kind))
+
+    def _on_parsed(self, result: object) -> None:
+        if isinstance(result, Exception):
+            self.message.setText(f"Could not read the payload: {result}")
+            return
+        self.message.hide()
+        self.tree.set_parsed(result)  # type: ignore[arg-type]
 
 
 # ---- a request with its response ---------------------------------------------------------------------------
